@@ -1,0 +1,29 @@
+# Local source build: run makepkg from this packaging directory.
+pkgname=campus-bjtu
+pkgver=0.1.9
+pkgrel=1
+pkgdesc='Offline-first BJTU Linux CLI'
+arch=('x86_64')
+license=('MIT')
+depends=('gcc-libs')
+makedepends=('rust' 'cargo')
+source=()
+prepare() {
+  mkdir -p "$srcdir/campus"
+  cp -a "$startdir/../Cargo.toml" "$startdir/../Cargo.lock" "$startdir/../crates" "$srcdir/campus/"
+  cd "$srcdir/campus"
+  cargo fetch --locked
+}
+build() {
+  cd "$srcdir/campus"
+  cargo build --frozen --release -p campus-cli
+}
+package() {
+  cd "$srcdir/campus"
+  install -Dm755 target/release/campus "$pkgdir/usr/bin/campus"
+  install -Dm644 "$startdir/../../LICENSE" "$pkgdir/usr/share/licenses/$pkgname/LICENSE"
+  for shell in bash zsh fish; do target/release/campus completions "$shell" > "$srcdir/campus.$shell"; done
+  install -Dm644 "$srcdir/campus.bash" "$pkgdir/usr/share/bash-completion/completions/campus"
+  install -Dm644 "$srcdir/campus.zsh" "$pkgdir/usr/share/zsh/site-functions/_campus"
+  install -Dm644 "$srcdir/campus.fish" "$pkgdir/usr/share/fish/vendor_completions.d/campus.fish"
+}

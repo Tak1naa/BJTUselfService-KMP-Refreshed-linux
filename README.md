@@ -3,6 +3,8 @@
 > 北京交通大学校园服务客户端 —— 让校园生活触手可及  ↩
 > 本仓库为 **Kotlin Multiplatform 重构版**（Android / iOS / macOS / Windows）。
 
+> **Rust 终端客户端（交大自由行 CLI）**位于 [`linux/`](linux/README.md)，采用 Rust + SQLite，支持 Linux、macOS 和 Windows x64 的离线查询、同步和全屏 TUI。验证记录见 [`linux/docs/STATUS.md`](linux/docs/STATUS.md)。
+
 [![KMP Release](https://img.shields.io/github/v/release/JasonZhang1225/BJTUselfService-KMP-Refreshed?include_prereleases&style=flat-square&label=KMP%20版本)](https://github.com/JasonZhang1225/BJTUselfService-KMP-Refreshed/releases)
 [![Android](https://img.shields.io/badge/Android-9.0%2B-brightgreen?style=flat-square&logo=android)](https://developer.android.com)
 [![iOS](https://img.shields.io/badge/iOS-18.0%2B%20侧载-000000?style=flat-square&logo=apple)](https://developer.apple.com)

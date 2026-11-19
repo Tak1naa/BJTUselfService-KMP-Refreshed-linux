@@ -1,0 +1,18 @@
+[package]
+name = "campus-fuzz"
+version = "0.0.0"
+edition = "2024"
+publish = false
+[package.metadata]
+cargo-fuzz = true
+[workspace]
+[dependencies]
+libfuzzer-sys = "0.4"
+campus-core = { path = "../crates/campus-core" }
+campus-net = { path = "../crates/campus-net", default-features = false, features = ["media"] }
+[[bin]]
+name = "parsers"
+path = "fuzz_targets/parsers.rs"
+test = false
+doc = false
+bench = false

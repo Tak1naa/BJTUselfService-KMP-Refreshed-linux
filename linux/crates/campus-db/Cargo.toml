@@ -1,0 +1,32 @@
+[package]
+name = "campus-db"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[features]
+default = ["keyring"]
+keyring = ["dep:keyring"]
+sqlcipher = ["rusqlite/bundled-sqlcipher"]
+[dependencies]
+campus-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+rusqlite = { version = "0.43", features = ["bundled"] }
+dirs = "6"
+chacha20poly1305 = "0.10"
+argon2 = "0.5"
+zeroize.workspace = true
+getrandom = "0.2"
+hex = "0.4"
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs", "process"] }
+[target.'cfg(target_os = "linux")'.dependencies]
+keyring = { version = "3.6", optional = true, default-features = false, features = ["linux-native-async-persistent", "async-io", "crypto-rust"] }
+[target.'cfg(target_os = "macos")'.dependencies]
+keyring = { version = "3.6", optional = true, default-features = false, features = ["apple-native"] }
+[target.'cfg(windows)'.dependencies]
+keyring = { version = "3.6", optional = true, default-features = false, features = ["windows-native"] }
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+[dev-dependencies]
+tempfile = "3"
