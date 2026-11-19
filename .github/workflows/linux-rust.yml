@@ -1,0 +1,128 @@
+name: Linux Rust CLI
+on:
+  push:
+    paths: ['linux/**', '.github/workflows/linux-rust.yml']
+  pull_request:
+    paths: ['linux/**', '.github/workflows/linux-rust.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      - run: cargo check --locked -p campus-cli --no-default-features
+      - run: cargo test --locked -p campus-db --features sqlcipher
+      - name: Dependency advisories
+        run: |
+          cargo install cargo-audit --version 0.23.0 --locked
+          cargo audit
+          cargo audit --file fuzz/Cargo.lock --no-fetch
+      - name: Default build has no OpenSSL or libdbus
+        run: |
+          cargo tree -e normal > dependencies.txt
+          if rg 'openssl|libdbus-sys|dbus v' dependencies.txt; then exit 1; fi
+      - name: Compare actual Kotlin implementations
+        run: |
+          python3 scripts/prepare-kotlin-oracle.py
+          bash ../multiplatform/gradlew -p tests/kotlin-oracle --no-daemon -q run --args="$PWD/tests/fixtures" > kotlin.json
+          cargo run --locked -q -p campus-net --example oracle_vectors -- tests/fixtures > rust.json
+          python3 scripts/compare-oracle.py kotlin.json rust.json
+  static:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: x86_64-unknown-linux-musl
+      - run: sudo apt-get update && sudo apt-get install -y musl-tools
+      - run: cargo build --locked --release --target x86_64-unknown-linux-musl -p campus-cli
+        env:
+          CC_x86_64_unknown_linux_musl: musl-gcc
+      - name: Static linking, size and offline startup gates
+        run: |
+          mkdir -p artifacts
+          if readelf -l target/x86_64-unknown-linux-musl/release/campus | rg INTERP; then exit 1; fi
+          size -A target/x86_64-unknown-linux-musl/release/campus > artifacts/sections.txt
+          python3 scripts/benchmark.py target/x86_64-unknown-linux-musl/release/campus --output artifacts/benchmark.json
+      - run: python3 scripts/package.py target/x86_64-unknown-linux-musl/release/campus --format deb
+      - uses: actions/upload-artifact@v4
+        with:
+          name: campus-linux-musl
+          path: |
+            linux/target/x86_64-unknown-linux-musl/release/campus
+            linux/artifacts/packages/*.deb
+            linux/artifacts/benchmark.json
+            linux/artifacts/sections.txt
+  macos:
+    runs-on: macos-latest
+    defaults:
+      run:
+        working-directory: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: aarch64-apple-darwin, x86_64-apple-darwin
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --locked --workspace --all-targets -- -D warnings
+      - run: cargo test --locked --workspace
+      - run: cargo check --locked -p campus-cli --no-default-features
+      - run: cargo test --locked -p campus-db --features sqlcipher
+      - name: Build universal macOS release binary (arm64 + x86_64)
+        run: |
+          mkdir -p artifacts
+          cargo build --locked --release --target aarch64-apple-darwin -p campus-cli
+          cargo build --locked --release --target x86_64-apple-darwin -p campus-cli
+          lipo -create -output artifacts/campus-macos-universal \
+            target/aarch64-apple-darwin/release/campus \
+            target/x86_64-apple-darwin/release/campus
+          lipo -info artifacts/campus-macos-universal
+      - name: Benchmark and package macOS archives
+        run: |
+          python3 scripts/benchmark.py target/aarch64-apple-darwin/release/campus --output artifacts/benchmark-macos.json
+          python3 scripts/package-macos.py artifacts/campus-macos-universal --arch universal
+          python3 scripts/package-macos.py target/aarch64-apple-darwin/release/campus --arch arm64
+          python3 scripts/package-macos.py target/x86_64-apple-darwin/release/campus --arch x64
+          tmp=$(mktemp -d)
+          tar -xzf artifacts/packages/campus-bjtu-*-macos-universal.tar.gz -C "$tmp"
+          "$tmp/campus" --version
+          rm -rf "$tmp"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: campus-macos
+          path: |
+            linux/artifacts/packages/campus-bjtu-*-macos-*.tar.gz
+            linux/artifacts/benchmark-macos.json
+  fuzz:
+    if: github.event_name == 'workflow_dispatch'
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: linux
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@nightly
+      - run: cargo install cargo-fuzz --locked
+      - run: |
+          mkdir -p fuzz/corpus/parsers
+          cp tests/fixtures/*.html tests/fixtures/*.json tests/fixtures/*.m3u8 fuzz/corpus/parsers/
+          cargo fuzz run parsers -- -max_total_time=30 -max_len=8192

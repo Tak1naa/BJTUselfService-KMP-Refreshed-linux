@@ -1,0 +1,33 @@
+[package]
+name = "campus-net"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+[features]
+default = ["media"]
+media = []
+[dependencies]
+campus-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true
+tokio.workspace = true
+reqwest.workspace = true
+url.workspace = true
+reqwest_cookie_store = "0.9"
+cookie_store = "0.22"
+sm2 = { version = "0.14", features = ["pke", "getrandom"] }
+base64 = "0.22"
+sha2 = "0.10"
+hex = "0.4"
+encoding_rs = "0.8"
+zeroize.workspace = true
+futures-util = "0.3"
+[target.'cfg(unix)'.dependencies]
+rustix = { version = "1", features = ["fs", "process"] }
+[target.'cfg(windows)'.dependencies]
+windows-sys = { version = "0.61", features = ["Win32_Storage_FileSystem"] }
+[dev-dependencies]
+wiremock = "0.6"
+tempfile = "3"
+tokio = { workspace = true, features = ["test-util"] }
