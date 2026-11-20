@@ -2,7 +2,9 @@ use campus_core::{Error, Result};
 use campus_db::paths::Paths;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use campus_db::storage;
-use serde_json::{Value, json};
+use serde_json::Value;
+#[cfg(any(target_os = "linux", target_os = "macos"))]
+use serde_json::json;
 #[cfg(any(target_os = "linux", target_os = "macos"))]
 use std::path::Path;
 
@@ -148,7 +150,7 @@ fn manage_macos(action: &str, every: &str) -> Result<Value> {
         .ok_or_else(|| storage("HOME missing"))?;
     let dir = home.join("Library/LaunchAgents");
     let plist_path = dir.join(LAUNCHD_PLIST_NAME);
-    let domain = format!("gui/{}", rustix::process::getuid().as_raw());
+    let domain = format!("gui/{}", campus_db::paths::current_uid());
     if action == "remove" {
         if let Ok(m) = std::fs::symlink_metadata(&plist_path)
             && (m.file_type().is_symlink()

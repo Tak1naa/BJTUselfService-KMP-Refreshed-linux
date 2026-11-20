@@ -58,6 +58,11 @@ impl Paths {
         self.data.join("campus.db")
     }
 }
+#[cfg(unix)]
+pub fn current_uid() -> u32 {
+    rustix::process::getuid().as_raw()
+}
+
 pub fn private_dir(path: &Path) -> Result<()> {
     if !path.exists() {
         let mut builder = fs::DirBuilder::new();

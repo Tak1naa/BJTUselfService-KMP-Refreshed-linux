@@ -1,0 +1,32 @@
+name: CLI Release
+on:
+  push:
+    tags:
+      - 'cli-v*'
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  build:
+    uses: ./.github/workflows/linux-rust.yml
+  release:
+    if: startsWith(github.ref, 'refs/tags/cli-v')
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: release-downloads
+      - name: Collect release assets
+        run: |
+          mkdir -p release-assets
+          find release-downloads -type f \( -name '*.deb' -o -name '*.rpm' -o -name '*.tar.gz' -o -name '*.zip' \) -exec cp {} release-assets/ \;
+          (cd release-assets && sha256sum * > SHA256SUMS.txt)
+          ls -la release-assets
+      - uses: softprops/action-gh-release@v2
+        with:
+          name: "交大自由行 CLI ${{ github.ref_name }}"
+          generate_release_notes: true
+          files: release-assets/*
