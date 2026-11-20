@@ -13,6 +13,7 @@
 | [`build/`](build/) | 构建、打包与分发机制说明（macOS SDK 启动器、双更新源、Gitee 镜像） | 随打包脚本与工作流演进更新 |
 | [`security/`](security/) | 安全审计报告、修复汇总与真机核验记录 | 按日期归档备查；由根 `README.md` 引用 |
 | [`archive/`](archive/) | 已收口阶段的历史文档存档（KMP 迁移 M0–M17、阶段性计划、回放验收、交接记录与代码质量审计） | 只读历史参考，不代表当前状态（含 `archive/migration/`、`archive/agent/`、`archive/playback/`、`archive/plans/`、`archive/refactor/`） |
+| [`../linux/`](../linux/README.md) | 交大自由行 CLI（Rust 终端端）用户手册、五层架构与编译验证文档 | CLI 用户手册见 [`linux/README.md`](../linux/README.md)，架构开发见 [`linux/docs/DEVELOPMENT.md`](../linux/docs/DEVELOPMENT.md)，状态见 [`linux/docs/STATUS.md`](../linux/docs/STATUS.md) |
 
 ## 常用现行文档
 

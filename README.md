@@ -1,9 +1,37 @@
 # 🚄 交大自由行KMP (BJTU Self Service KMP Refreshed)
 
-> 北京交通大学校园服务客户端 —— 让校园生活触手可及  ↩
-> 本仓库为 **Kotlin Multiplatform 重构版**（Android / iOS / macOS / Windows）。
+> 北京交通大学校园服务客户端 —— 让校园生活触手可及  
+> 本仓库同时包含 **Kotlin Multiplatform 图形客户端（[`multiplatform/`](multiplatform)）** 与 **Rust 原生终端客户端「交大自由行 CLI」（[`linux/`](linux)）**。
 
-> **Rust 终端客户端（交大自由行 CLI）**位于 [`linux/`](linux/README.md)，采用 Rust + SQLite，支持 Linux、macOS 和 Windows x64 的离线查询、同步和全屏 TUI。验证记录见 [`linux/docs/STATUS.md`](linux/docs/STATUS.md)。
+## 🗂️ 仓库结构
+
+| 目录 / 文件 | 定位 | 适用场景 |
+| --- | --- | --- |
+| [`multiplatform/`](multiplatform) | **KMP + Compose 图形客户端** | Android / iOS / macOS / Windows 桌面与移动端 App（含小组件、灵动岛、AI 助手） |
+| [`linux/`](linux) | **交大自由行 CLI (`campus`)** | **< 10 MiB 单二进制**、低内存毫秒级离线响应、全屏 10 页 TUI 与脚本自动化（Linux / macOS / Windows） |
+| [`docs/`](docs/README.md) | **总文档索引** | iOS 自签指南、安全审计报告、发版说明与 AI 助手协议 |
+| [`.github/workflows/`](.github/workflows) | **CI/CD 流水线** | KMP 四端打包安全检查、`linux-rust.yml`（Linux musl/DEB/tar.gz & macOS 构建） |
+
+## ⌨️ 交大自由行 CLI（`linux/`，To C 快速上手）
+
+如果你更喜欢轻量终端或需要在服务器 / WSL / 笔记本上极速查课、算分、交物理在线实验，推荐使用 **Rust 重构的「交大自由行 CLI」**（[`linux/README.md`](linux/README.md)）：
+
+- **小体积 & 低内存**：静态 musl 二进制仅 **9.75 MiB**（`.deb` 约 `3.27 MiB`、`.rpm` 约 `3.51 MiB`），离线查询与工作台启动不加载 Tokio/TLS 运行时，p95 响应 **8.7–15.1 ms**；大课件 4 MiB 分片断点续传。
+- **全屏 TUI 工作台**：终端直接输入 `campus` 进入 10 标签页全屏工作台（课表周历、作业、GPA、考试、五色教室网格、一卡通、校历、课件下载、同步状态、物理在线），按 `r` 后台同步。
+- **五层 Crate 架构重构**：`campus-core` → `campus-db` & `campus-net` → `campus-sync` → `campus-cli`，详细架构与编译见 [`linux/docs/DEVELOPMENT.md`](linux/docs/DEVELOPMENT.md)。
+
+**三步开始使用：**
+1. **安装**：从 [Releases](https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/releases)（或 Actions 产物）下载 `.deb` / `.rpm` / `.tar.gz` / `.zip`（详见 [`linux/README.md`](linux/README.md)）：
+   - Debian / Ubuntu：`sudo apt install ./campus-bjtu_0.1.9_amd64.deb`
+   - Fedora / RHEL：`sudo dnf install ./campus-bjtu-0.1.9-1.*.x86_64.rpm`
+   - 通用 Linux / macOS：解压 `.tar.gz` 后放入 `/usr/local/bin/campus`（macOS 首次可执行 `xattr -d com.apple.quarantine ./campus`）
+   - Windows：解压 `.zip` 后在 PowerShell 运行 `.\campus.exe`
+2. **登录并同步**：`campus auth login --user 学号 --remember && campus sync all`（无钥匙串的 SSH 服务器先执行 `campus config set vault.backend file`）
+3. **打开工作台**：直接运行 `campus`（或导出日历 `campus export ics -o bjtu.ics --offline`、查 GPA `campus grades gpa --offline`）
+
+---
+
+## 📱 KMP 图形客户端 (`multiplatform/`)
 
 [![KMP Release](https://img.shields.io/github/v/release/JasonZhang1225/BJTUselfService-KMP-Refreshed?include_prereleases&style=flat-square&label=KMP%20版本)](https://github.com/JasonZhang1225/BJTUselfService-KMP-Refreshed/releases)
 [![Android](https://img.shields.io/badge/Android-9.0%2B-brightgreen?style=flat-square&logo=android)](https://developer.android.com)

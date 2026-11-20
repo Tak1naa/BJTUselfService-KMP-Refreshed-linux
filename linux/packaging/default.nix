@@ -16,7 +16,7 @@ rustPlatform.buildRustPackage {
     $out/bin/campus completions fish > $out/share/fish/vendor_completions.d/campus.fish
   '';
   meta = {
-    description = "Offline-first BJTU Linux CLI";
+    description = "交大自由行 CLI (campus) - Offline-first BJTU campus CLI";
     license = lib.licenses.mit;
     platforms = lib.platforms.linux;
     mainProgram = "campus";

@@ -63,12 +63,14 @@ jobs:
           size -A target/x86_64-unknown-linux-musl/release/campus > artifacts/sections.txt
           python3 scripts/benchmark.py target/x86_64-unknown-linux-musl/release/campus --output artifacts/benchmark.json
       - run: python3 scripts/package.py target/x86_64-unknown-linux-musl/release/campus --format deb
+      - run: python3 scripts/package.py target/x86_64-unknown-linux-musl/release/campus --format tar
       - uses: actions/upload-artifact@v4
         with:
           name: campus-linux-musl
           path: |
             linux/target/x86_64-unknown-linux-musl/release/campus
             linux/artifacts/packages/*.deb
+            linux/artifacts/packages/*-linux-x86_64.tar.gz
             linux/artifacts/benchmark.json
             linux/artifacts/sections.txt
   macos:
