@@ -2,7 +2,7 @@
 pkgname=campus-bjtu
 pkgver=0.1.9
 pkgrel=1
-pkgdesc='Offline-first BJTU Linux CLI'
+pkgdesc='交大自由行 CLI (campus) - Offline-first BJTU campus CLI'
 arch=('x86_64')
 license=('MIT')
 depends=('gcc-libs')

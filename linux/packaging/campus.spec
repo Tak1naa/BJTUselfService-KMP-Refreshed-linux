@@ -1,7 +1,7 @@
 Name: campus-bjtu
 Version: 0.1.9
 Release: 1%{?dist}
-Summary: Offline-first BJTU Linux CLI
+Summary: 交大自由行 CLI (campus) - Offline-first BJTU campus CLI
 License: MIT
 Source0: campus-files.tar.gz
 BuildArch: x86_64

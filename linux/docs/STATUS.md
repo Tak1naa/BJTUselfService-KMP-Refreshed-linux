@@ -10,7 +10,7 @@
 - CLI 新增 `campus phyvlab`（`list`、`courses`、`show`、`download`、`upload`、`finalize`、`login`、`logout`、`status`），全屏 TUI（标题已更新为「交大自由行 CLI」）新增「物理在线」页（快捷键 `0`，支持详情查看、按 `d` 下载附件与 `r` 同步）。
 - 76 项工作区测试（含 `campus-cli` 13 项、`campus-core` 25 项、`campus-db` 6 项、`campus-net` 28 项、`campus-sync` 4 项）、Clippy 与格式检查全部通过（`--no-default-features` 编译与 `sqlcipher` 7 项测试在同版本 `0.1.9` 更名前通过）。
 - 静态 musl 二进制体积 `10,225,056` 字节（9.75 MiB，低于 10 MiB 门禁），100 次预热离线基准测试通过（`--version` p95 `2.69 ms`，离线各查询 p95 `8.70–15.05 ms`）。
-- 已打包并解包校验 `artifacts/packages/campus-bjtu_0.1.9_amd64.deb`（`3,426,668` 字节）与 `artifacts/packages/campus-bjtu-0.1.9-1.fc44.x86_64.rpm`（`3,676,852` 字节），包内 `/usr/bin/campus` 与静态二进制 SHA-256 逐字节一致；校验值已写入 `artifacts/SHA256SUMS`。当前环境未安装 LLVM-MinGW，本轮未构建 Windows x64 ZIP。
+- 已打包并解包校验 `artifacts/packages/campus-bjtu_0.1.9_amd64.deb`（`3,426,708` 字节）、`artifacts/packages/campus-bjtu-0.1.9-1.fc44.x86_64.rpm`（`3,676,903` 字节）与 `artifacts/packages/campus-bjtu-0.1.9-linux-x86_64.tar.gz`（`4,402,564` 字节），包内 `/usr/bin/campus`（或便携包 `campus`）与静态二进制 SHA-256 逐字节一致；校验值已写入 `artifacts/SHA256SUMS`。当前环境未安装 LLVM-MinGW，本轮未构建 Windows x64 ZIP。
 - 已完成 macOS 源码与 CI 适配：`campus-db` 拆分 `target_os = "macos"`（`keyring` `apple-native` 接入系统钥匙串）与 `target_os = "linux"`（`linux-native-async-persistent`），`campus timer` 新增 macOS `launchd`（`~/Library/LaunchAgents/team.bjtuss.campus.sync.plist`）定时任务与 `plutil -lint` 校验测试，`sync --notify` 新增 macOS `osascript` 系统通知，并新增 `scripts/package-macos.py` 与 `.github/workflows/linux-rust.yml` 的 `macos-latest` Universal 构建测试流水线（本机为 Linux x86_64，macOS 目标交由 GitHub Actions `macos-latest` 验证）。
 
 ## 0.1.8 课件目录同步
