@@ -45,6 +45,51 @@ pub fn homework_status(row: &Value) -> &'static str {
     }
 }
 
+pub fn parse_homework_due(raw: &str) -> Option<i64> {
+    let trimmed = raw.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+    if let Ok(ts) = trimmed.parse::<jiff::Timestamp>() {
+        return Some(ts.as_second());
+    }
+    let normalized = trimmed.replace('/', "-").replace(' ', "T");
+    let zone = crate::calendar::school_zone();
+    if let Ok(dt) = normalized.parse::<jiff::civil::DateTime>() {
+        return dt.to_zoned(zone).ok().map(|z| z.timestamp().as_second());
+    }
+    if let Ok(date) = normalized.parse::<jiff::civil::Date>() {
+        return date
+            .at(23, 59, 59, 0)
+            .to_zoned(zone)
+            .ok()
+            .map(|z| z.timestamp().as_second());
+    }
+    None
+}
+
+pub fn homework_due_timestamp(row: &Value) -> Option<i64> {
+    scalar(&row["end_time"]).and_then(|s| parse_homework_due(&s))
+}
+
+pub fn homework_is_overdue(row: &Value, now: i64) -> bool {
+    homework_status(row) == "未提交" && homework_due_timestamp(row).is_some_and(|due| due < now)
+}
+
+/// Sort homework with unsubmitted items first, then unknown, then submitted;
+/// each group is ordered by deadline ascending (missing deadlines last).
+pub fn sort_homework(rows: &mut [Value]) {
+    rows.sort_by_key(|row| {
+        let group = match homework_status(row) {
+            "未提交" => 0u8,
+            "未知" => 1u8,
+            _ => 2u8,
+        };
+        let due = homework_due_timestamp(row);
+        (group, due.is_none(), due.unwrap_or(i64::MAX))
+    });
+}
+
 pub fn homework_text(raw: &str) -> String {
     let source = raw.replace(r"\<", "<").replace(r"\>", ">");
     let html = Html::parse_fragment(&source);
@@ -757,5 +802,32 @@ mod tests {
     fn nested_login_error() {
         let p=login("<form id=loginForm><input name=flowId value=abc><input name=username><input name=password></form><script>var error = {\"code\":41100,\"data\":{\"captchaType\":\"image\"}};\n</script>").unwrap();
         assert!(p.requires_captcha);
+    }
+
+    #[test]
+    fn homework_sort_and_overdue_check() {
+        let mut rows = vec![
+            serde_json::json!({"id": "s2", "subStatus": "已提交", "end_time": "2026-11-25 23:59"}),
+            serde_json::json!({"id": "u_none", "subStatus": "未提交", "end_time": ""}),
+            serde_json::json!({"id": "s1", "snId": 10, "end_time": "2026-11-10 18:00:00"}),
+            serde_json::json!({"id": "u_late", "subStatus": "未提交", "end_time": "2026-11-28 23:59"}),
+            serde_json::json!({"id": "u_past", "subStatus": "未提交", "end_time": "2026-11-18 23:59"}),
+            serde_json::json!({"id": "s_none", "subStatus": "已提交"}),
+        ];
+        sort_homework(&mut rows);
+        let ids: Vec<_> = rows.iter().map(|r| r["id"].as_str().unwrap()).collect();
+        assert_eq!(
+            ids,
+            vec!["u_past", "u_late", "u_none", "s1", "s2", "s_none"]
+        );
+
+        let now = "2026-11-20T12:00:00+08:00"
+            .parse::<jiff::Timestamp>()
+            .unwrap()
+            .as_second();
+        assert!(homework_is_overdue(&rows[0], now));
+        assert!(!homework_is_overdue(&rows[1], now));
+        assert!(!homework_is_overdue(&rows[2], now));
+        assert!(!homework_is_overdue(&rows[3], now));
     }
 }

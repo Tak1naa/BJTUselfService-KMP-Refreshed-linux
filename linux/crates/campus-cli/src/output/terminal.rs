@@ -288,12 +288,23 @@ pub fn render(args: &Args, value: &Value) {
     ) {
         room_live(&table, data);
     } else if let Some(object) = data.as_object() {
-        let rows: Vec<_> = object
-            .iter()
-            .map(|(key, value)| (field_label(key).to_owned(), present(key, value)))
-            .map(|(key, value)| vec![key, value])
-            .collect();
-        table.print(&["字段", "内容"], &rows);
+        let current = crate::now();
+        let overdue = name == "homework" && campus_core::parse::homework_is_overdue(data, current);
+        let mut rows = Vec::with_capacity(object.len());
+        let mut accents = Vec::with_capacity(object.len());
+        for (key, value) in object {
+            let text = if name == "homework" && key == "subStatus" {
+                campus_core::parse::homework_status(data).into()
+            } else {
+                present(key, value)
+            };
+            accents.push(vec![
+                None,
+                (name == "homework" && key == "subStatus" && overdue).then_some(MUTED),
+            ]);
+            rows.push(vec![field_label(key).to_owned(), text]);
+        }
+        table.print_accented(&["字段", "内容"], &rows, &accents);
     } else if records[0].is_object() {
         let preferred: &[&str] = match name {
             "homework" => &["id", "course_name", "title", "end_time", "subStatus"],
@@ -372,7 +383,21 @@ pub fn render(args: &Args, value: &Value) {
                     .collect()
             })
             .collect();
-        table.print(&headers, &rows);
+        let current_time = crate::now();
+        let accents: Vec<Vec<Option<Accent>>> = if name == "homework" {
+            records
+                .iter()
+                .map(|r| {
+                    let overdue = campus_core::parse::homework_is_overdue(r, current_time);
+                    keys.iter()
+                        .map(|key| (*key == "subStatus" && overdue).then_some(MUTED))
+                        .collect()
+                })
+                .collect()
+        } else {
+            Vec::new()
+        };
+        table.print_accented(&headers, &rows, &accents);
     } else {
         for record in records {
             println!("{}", cell(record));
@@ -515,13 +540,22 @@ struct Table {
 
 impl Table {
     fn print(&self, headers: &[&str], rows: &[Vec<String>]) {
+        self.print_accented(headers, rows, &[]);
+    }
+
+    fn print_accented(
+        &self,
+        headers: &[&str],
+        rows: &[Vec<String>],
+        accents: &[Vec<Option<Accent>>],
+    ) {
         if headers.is_empty() {
             return;
         }
         let minimum: Vec<_> = headers.iter().map(|h| h.width().max(2)).collect();
         let available = self.width.saturating_sub((headers.len() - 1) * 3);
         if minimum.iter().sum::<usize>() > available || available < headers.len() * 4 {
-            self.stacked(headers, rows);
+            self.stacked(headers, rows, accents);
             return;
         }
         let targets: Vec<_> = minimum
@@ -565,7 +599,8 @@ impl Table {
             "{headings}\n{}",
             paint(self.colored, MUTED.style(false), &border)
         );
-        for row in rows {
+        for (row_idx, row) in rows.iter().enumerate() {
+            let row_accents = accents.get(row_idx).map(Vec::as_slice).unwrap_or(&[]);
             let lines: Vec<_> = row.iter().zip(&widths).map(|(s, w)| wrap(s, *w)).collect();
             let height = lines.iter().map(Vec::len).max().unwrap_or(1);
             for i in 0..height {
@@ -573,10 +608,12 @@ impl Table {
                     .iter()
                     .zip(&widths)
                     .zip(row)
-                    .map(|((lines, w), s)| {
+                    .enumerate()
+                    .map(|(col_idx, ((lines, w), s))| {
                         let text = lines.get(i).map(String::as_str).unwrap_or("");
                         let padded = pad(text, *w, s.parse::<f64>().is_ok());
-                        self.paint_cell(s, &padded)
+                        let custom = row_accents.get(col_idx).copied().flatten();
+                        self.paint_cell(s, &padded, custom)
                     })
                     .collect::<Vec<_>>()
                     .join(&separator);
@@ -585,27 +622,33 @@ impl Table {
         }
     }
 
-    fn stacked(&self, headers: &[&str], rows: &[Vec<String>]) {
+    fn stacked(&self, headers: &[&str], rows: &[Vec<String>], accents: &[Vec<Option<Accent>>]) {
         for (i, row) in rows.iter().enumerate() {
+            let row_accents = accents.get(i).map(Vec::as_slice).unwrap_or(&[]);
             if i != 0 {
                 println!();
             }
-            for (key, value) in headers.iter().zip(row) {
+            for (col_idx, (key, value)) in headers.iter().zip(row).enumerate() {
                 println!("{}", paint(self.colored, self.accent.style(true), key));
+                let custom = row_accents.get(col_idx).copied().flatten();
                 for line in wrap(value, self.width.saturating_sub(2).max(2)) {
-                    println!("  {}", self.paint_cell(value, &line));
+                    println!("  {}", self.paint_cell(value, &line, custom));
                 }
             }
         }
     }
 
-    fn paint_cell(&self, cell: &str, padded: &str) -> String {
-        let accent = match cell {
-            "成功" | "已提交" | "按时提交" => GREEN,
-            "失败" | "未提交" | "已逾期" => RED,
-            value if value.ends_with(" 本周") => GREEN,
-            "需处理" | "草稿 · 待最终提交" | "逾期提交" | "待提交" => AMBER,
-            _ => return padded.into(),
+    fn paint_cell(&self, cell: &str, padded: &str, custom: Option<Accent>) -> String {
+        let Some(accent) = custom.or_else(|| {
+            Some(match cell {
+                "成功" | "已提交" | "按时提交" => GREEN,
+                "失败" | "未提交" | "已逾期" => RED,
+                value if value.ends_with(" 本周") => GREEN,
+                "需处理" | "草稿 · 待最终提交" | "逾期提交" | "待提交" => AMBER,
+                _ => return None,
+            })
+        }) else {
+            return padded.into();
         };
         paint(self.colored, accent.style(true), padded)
     }

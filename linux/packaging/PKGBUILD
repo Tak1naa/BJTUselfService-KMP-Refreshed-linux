@@ -1,6 +1,6 @@
 # Local source build: run makepkg from this packaging directory.
 pkgname=campus-bjtu
-pkgver=0.1.10
+pkgver=0.1.11
 pkgrel=1
 pkgdesc='交大自由行 CLI (campus) - Offline-first BJTU campus CLI'
 arch=('x86_64')

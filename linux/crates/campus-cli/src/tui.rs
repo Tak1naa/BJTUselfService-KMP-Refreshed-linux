@@ -46,6 +46,17 @@ fn submission_color(status: &str) -> Option<Ink> {
     }
 }
 
+fn homework_submission_color(status: &str, end_time: Option<&str>, current: i64) -> Option<Ink> {
+    if status == "未提交"
+        && end_time
+            .and_then(campus_core::parse::parse_homework_due)
+            .is_some_and(|due| due < current)
+    {
+        return Some(MUTED);
+    }
+    submission_color(status)
+}
+
 struct Page {
     dataset: &'static str,
     title: &'static str,
@@ -469,6 +480,9 @@ impl App {
         }
         if page.dataset == "grades" {
             self.grades = crate::from_rows(rows.clone())?;
+        }
+        if page.dataset == "homework" {
+            campus_core::parse::sort_homework(&mut rows);
         }
         let mut current_week = None;
         if page.dataset == "calendar" {
@@ -1045,13 +1059,14 @@ impl App {
                 }
             };
             let colored = self.colored;
+            let current = now();
             let data = self.visible.iter().map(|&i| {
                 let row = &self.rows[i];
                 let current_week = page.dataset == "calendar" && row[1].ends_with(" 本周");
                 Row::new(columns.iter().map(|&j| {
-                    let color = if (page.dataset == "homework" && page.fields[j].0 == "subStatus")
-                        || (page.dataset == "phyvlab" && page.fields[j].0 == "status_label")
-                    {
+                    let color = if page.dataset == "homework" && page.fields[j].0 == "subStatus" {
+                        homework_submission_color(&row[j], Some(&row[2]), current)
+                    } else if page.dataset == "phyvlab" && page.fields[j].0 == "status_label" {
                         submission_color(&row[j])
                     } else if current_week {
                         Some(GREEN)
@@ -1169,6 +1184,10 @@ impl App {
             frame.render_widget(Clear, box_area);
             let text = if matches!(page.dataset, "homework" | "phyvlab") {
                 const LABELS: &[&str] = &["提交状态  ", "状态  "];
+                let due = (page.dataset == "homework")
+                    .then(|| content.lines().find_map(|line| line.strip_prefix("截止  ")))
+                    .flatten();
+                let current = now();
                 Text::from(
                     content
                         .lines()
@@ -1176,7 +1195,7 @@ impl App {
                             if let Some((label, status)) = LABELS
                                 .iter()
                                 .find_map(|label| line.strip_prefix(label).map(|s| (*label, s)))
-                                && let Some(color) = submission_color(status)
+                                && let Some(color) = homework_submission_color(status, due, current)
                             {
                                 return Line::from(vec![
                                     Span::raw(label),

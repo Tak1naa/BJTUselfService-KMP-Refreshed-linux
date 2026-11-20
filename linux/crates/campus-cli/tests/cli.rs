@@ -346,3 +346,48 @@ fn phyvlab_offline_list_courses_show_and_failure_guidance() {
     let status = f.json(&["phyvlab", "status"]);
     assert_eq!(status["data"]["configured"], false);
 }
+
+#[test]
+fn homework_lists_unsubmitted_first_sorted_by_due_and_dims_overdue() {
+    let f = Fixture::new();
+    let mut db = Database::open(&f.temp.path().join("data/campus-portal/campus.db")).unwrap();
+    let id = db.account("fixture-user").unwrap();
+    db.save(
+        id,
+        "homework",
+        &[
+            json!({"id": "s2", "course_name": "算法", "title": "已交较晚", "end_time": "2099-11-20 23:59", "subStatus": "已提交"}),
+            json!({"id": "u_future", "course_name": "算法", "title": "未交未逾期", "end_time": "2099-12-01 23:59", "subStatus": "未提交"}),
+            json!({"id": "s1", "course_name": "算法", "title": "已交较早", "end_time": "2020-01-01 23:59", "snId": 9}),
+            json!({"id": "u_past", "course_name": "算法", "title": "未交已逾期", "end_time": "2020-01-02 23:59", "subStatus": "未提交"}),
+        ],
+        jiff::Timestamp::now().as_second(),
+    )
+    .unwrap();
+
+    let listed = f.json(&["homework", "--offline"]);
+    let ids: Vec<_> = listed["data"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|row| row["id"].as_str().unwrap())
+        .collect();
+    assert_eq!(ids, vec!["u_past", "u_future", "s1", "s2"]);
+
+    let out = f
+        .cmd()
+        .env_remove("NO_COLOR")
+        .env("COLORTERM", "truecolor")
+        .env("TERM", "xterm-256color")
+        .args(["homework", "--offline", "--color", "always"])
+        .output()
+        .unwrap();
+    assert!(out.status.success());
+    let text = String::from_utf8(out.stdout).unwrap();
+    assert!(
+        text.contains("\x1b[1m\x1b[38;2;157;157;157m未提交\x1b[0m")
+            || text.contains("38;2;157;157;157m未提交")
+    );
+    assert!(text.contains("38;2;248;81;73m未提交"));
+    assert!(text.contains("38;2;181;206;168m已提交"));
+}

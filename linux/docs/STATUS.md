@@ -2,6 +2,12 @@
 
 日期：2026-11-20。分支：`main`（由 `feat/linux-rust-cli` 合入），基于实际 BJTU 仓库。Kotlin Multiplatform 源码保留，可继续使用。
 
+## 0.1.11 作业列表排序与逾期未提交灰显
+
+- 作业列表与 TUI「作业」页改为将 `未提交` 与 `已提交` 分别按截止时间（北京时间）升序排列，并将 `未提交` 置于上方，缺少截止时间的条目置于所属分组末尾。
+- 已过截止时间的 `未提交` 作业在终端表格/详情与 TUI 表格/详情弹窗中以灰色（`MUTED`）显示提交状态，未逾期仍为红色，`已提交` 为绿色；`--json`、`--format tsv` 与 `--color never` 输出保持不变。
+- 80 项工作区测试（含新增排序/逾期单测与 CLI 集成测试）、`sqlcipher` 7 项测试、`--no-default-features` 编译、Clippy 与格式检查全部通过；静态 musl 二进制体积 `10,295,840` 字节（9.82 MiB）。
+
 ## 0.1.10 BJTU TLS 中间证书补全与跨平台修复
 
 - 定位并修复 `mis.bjtu.edu.cn` 自 2026-11-17 更换 `*.bjtu.edu.cn` 新证书后服务端漏发 `GeoTrust G2 TLS CN RSA4096 SHA256 2022 CA1` 中间证书导致 `rustls` 报错 `network request failed`（退出码 `69`）的问题（`0.1.9` 在 Wine 与本机 Linux 均已复现该问题）。

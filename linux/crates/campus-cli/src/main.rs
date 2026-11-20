@@ -656,7 +656,7 @@ fn read_command(
         &options,
         &mut warnings,
     )?;
-    let rows = if dataset == "grades" {
+    let mut rows = if dataset == "grades" {
         Vec::new()
     } else {
         db.rows(account, &key)?
@@ -998,7 +998,10 @@ fn read_command(
             }
         }
         Command::Homework { action, id, .. } => match action.as_str() {
-            "list" => json!(rows),
+            "list" => {
+                campus_core::parse::sort_homework(&mut rows);
+                json!(rows)
+            }
             "show" => {
                 let id = id
                     .as_deref()
