@@ -40,7 +40,8 @@ jobs:
       - name: Compare actual Kotlin implementations
         run: |
           python3 scripts/prepare-kotlin-oracle.py
-          bash ../multiplatform/gradlew -p tests/kotlin-oracle --no-daemon -q run --args="$PWD/tests/fixtures" > kotlin.json
+          bash ../multiplatform/gradlew -p tests/kotlin-oracle --no-daemon -q run --args="$PWD/tests/fixtures" > kotlin.json \
+            || bash ../multiplatform/gradlew -p tests/kotlin-oracle --no-daemon --refresh-dependencies -q run --args="$PWD/tests/fixtures" > kotlin.json
           cargo run --locked -q -p campus-net --example oracle_vectors -- tests/fixtures > rust.json
           python3 scripts/compare-oracle.py kotlin.json rust.json
   static:

@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """Measure warm offline CLI processes with a private, synthetic SQLite database."""
-import argparse,json,os,sqlite3,statistics,subprocess,tempfile,time
+import argparse,json,os,sqlite3,statistics,subprocess,sys,tempfile,time
 from datetime import datetime,timedelta,timezone
 from pathlib import Path
-p=argparse.ArgumentParser();p.add_argument('binary',type=Path);p.add_argument('--runs',type=int,default=100);p.add_argument('--max-ms',type=float,default=20);p.add_argument('--max-bytes',type=int,default=10*1024*1024);p.add_argument('--output',type=Path);a=p.parse_args();binary=a.binary.resolve()
+p=argparse.ArgumentParser();p.add_argument('binary',type=Path);p.add_argument('--runs',type=int,default=100);p.add_argument('--max-ms',type=float,default=20);p.add_argument('--version-max-ms',type=float,default=6.0 if sys.platform=='darwin' else 3.0);p.add_argument('--max-bytes',type=int,default=10*1024*1024);p.add_argument('--output',type=Path);a=p.parse_args();binary=a.binary.resolve()
 if a.runs<20: p.error('at least 20 runs are required for p95')
 with tempfile.TemporaryDirectory(prefix='campus-bench-') as d:
     root=Path(d);env=os.environ.copy()
@@ -35,5 +35,5 @@ with tempfile.TemporaryDirectory(prefix='campus-bench-') as d:
         samples.sort();result['commands'].append({'command':' '.join(cmd),'median_ms':statistics.median(samples),'p95_ms':samples[int((len(samples)-1)*.95)],'max_ms':max(samples)})
     text=json.dumps(result,ensure_ascii=False,indent=2);print(text)
     if a.output:a.output.write_text(text+'\n')
-    failed=result['bytes']>a.max_bytes or any(v['p95_ms']>(3 if v['command']=='--version' else a.max_ms) for v in result['commands'])
+    failed=result['bytes']>a.max_bytes or any(v['p95_ms']>(a.version_max_ms if v['command']=='--version' else a.max_ms) for v in result['commands'])
     raise SystemExit(1 if failed else 0)

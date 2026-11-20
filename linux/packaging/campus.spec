@@ -21,7 +21,7 @@ tar -xzf %{SOURCE0} -C %{buildroot}
 /usr/share/zsh/site-functions/_campus
 /usr/share/fish/vendor_completions.d/campus.fish
 /usr/share/doc/campus-bjtu/
-/usr/share/man/man1/campus.1.gz
+/usr/share/man/man1/campus.1*
 
 %changelog
 * Thu Nov 19 2026 BJTU campus contributors - 0.1.9-1
