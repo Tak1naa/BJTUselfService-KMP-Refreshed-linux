@@ -1,218 +1,361 @@
-# 🚄 交大自由行KMP (BJTU Self Service KMP Refreshed)
+# 交大自由行 CLI (`campus`)
 
-> 北京交通大学校园服务客户端 —— 让校园生活触手可及  ↩
-> 本仓库为 **Kotlin Multiplatform 重构版**（Android / iOS / macOS / Windows）。
+北京交通大学校园服务跨平台原生终端客户端（Rust + SQLite，当前版本 `0.1.9`）。  
+离线优先、低内存、单二进制分发，无需 JVM、常驻后端或外置数据库；同时提供全屏工作台（TUI）与可脚本化的 CLI / JSON / TSV 输出。
 
-> **Rust 终端客户端（交大自由行 CLI）**位于 [`linux/`](linux/README.md)，采用 Rust + SQLite，支持 Linux、macOS 和 Windows x64 的离线查询、同步和全屏 TUI。验证记录见 [`linux/docs/STATUS.md`](linux/docs/STATUS.md)。
+> 原 Kotlin Multiplatform（Android / iOS / macOS / Windows 桌面端）工程仍完整保留于上级 [`multiplatform/`](../multiplatform) 目录，作为客户端与解析对照基准；[`linux/`](.) 目录为其原生终端实现，两者互不影响。实际验收记录与各平台测试状态见 [docs/STATUS.md](docs/STATUS.md)。
 
-[![KMP Release](https://img.shields.io/github/v/release/JasonZhang1225/BJTUselfService-KMP-Refreshed?include_prereleases&style=flat-square&label=KMP%20版本)](https://github.com/JasonZhang1225/BJTUselfService-KMP-Refreshed/releases)
-[![Android](https://img.shields.io/badge/Android-9.0%2B-brightgreen?style=flat-square&logo=android)](https://developer.android.com)
-[![iOS](https://img.shields.io/badge/iOS-18.0%2B%20侧载-000000?style=flat-square&logo=apple)](https://developer.apple.com)
-[![macOS](https://img.shields.io/badge/macOS-12%2B%20Apple%20Silicon-000000?style=flat-square&logo=apple)](https://developer.apple.com)
-[![Kotlin](https://img.shields.io/badge/Kotlin-Multiplatform%20%2B%20Compose-7F52FF?style=flat-square&logo=kotlin)](https://kotlinlang.org)
-[![License](https://img.shields.io/github/license/JasonZhang1225/BJTUselfService-KMP-Refreshed?style=flat-square)](LICENSE)
+---
 
-<p align="center"><img src="docs/images/promo.jpg" alt="交大自由行 KMP：北京交通大学校园服务，一个 App 多端同步；功能一览：作业聚合、应用中心、教室查询、按需定制、成绩分析、校内邮箱，更多功能不止于此" width="100%"></p>
+## 目录
 
-## 📖 项目简介
+- [特性概览](#特性概览)
+- [平台支持与安装路径](#平台支持与安装路径)
+- [快速上手](#快速上手)
+- [全屏工作台 (TUI)](#全屏工作台-tui)
+- [CLI 命令速查](#cli-命令速查)
+  - [1. 账号与认证 (`auth`)](#1-账号与认证-auth)
+  - [2. 课表、成绩、考试、一卡通与校历](#2-课表成绩考试一卡通与校历)
+  - [3. 教室查询 (`rooms`)](#3-教室查询-rooms)
+  - [4. 作业与课件下载 (`homework` / `courseware`)](#4-作业与课件下载-homework--courseware)
+  - [5. 物理在线 (`phyvlab`)](#5-物理在线-phyvlab)
+  - [6. 同步、定时任务与导出 (`sync` / `changes` / `export`)](#6-同步定时任务与导出-sync--changes--export)
+- [输出格式、退出码与配置](#输出格式退出码与配置)
+- [数据目录、凭据与安全模型](#数据目录凭据与安全模型)
+- [从源码构建与打包](#从源码构建与打包)
+- [测试、对照验证与性能基准](#测试对照验证与性能基准)
 
-**交大自由行** 是一款专为北京交通大学师生打造的校园服务应用。通过自动登录 MIS 系统，将成绩查询、课程表、考试安排、作业管理、邮件查看等常用校园功能整合到一个简洁直观的界面中。
+---
 
-登录页解析、密码加密和学校数据解析均在**本地完成**，账号密码不会上传至第三方服务器。
+## 特性概览
 
-本项目（[BJTUselfService-KMP-Refreshed](https://github.com/JasonZhang1225/BJTUselfService-KMP-Refreshed)）在原作者 [HFDLYS/BJTUselfService](https://github.com/HFDLYS/BJTUselfService) 安卓版基础上，用 **KMP + Compose Multiplatform** 做多端共享实现。
+- **离线优先**：所有本地查询（课表、成绩、考试、一卡通、学年历、作业、物理在线等）直接读取 SQLite 缓存，不启动 Tokio / TLS / 钥匙串；有缓存但过期时可按配置触发后台静默同步。
+- **全屏交互工作台**：终端直接运行 `campus` 进入「交大自由行 CLI」TUI，集成 10 个视图页（支持列表/周历切换、实时筛选、详情弹窗、附件下载与即时同步）。
+- **物理在线完整闭环**：支持独立登录（通过本机 `127.0.0.1` 临时回环页拉起系统浏览器完成阿里云点选验证码）、课程/作业列表与详情、老师附件下载、草稿文件增删与最终提交确认。
+- **多端密钥集成与隐私边界**：默认接入系统钥匙串（Linux Secret Service / macOS Keychain / Windows Credential Manager），显式 `--remember` 才保存密码；会话 Cookie 加密保存；不内置任何验证码自动识别或绕过逻辑。
+- **脚本与 AI 友好**：原生支持 `--json`（统一 `schema: 1` 信封格式）与 `--format tsv`，方便管道处理、Shell 自动补全或接入本地自动化工具。
 
-本项目以原版 `v1.7.1` 为迁移基线，此后独立迭代，不再与上游同步。相对迁移基线，KMP 版主要新增：
+---
 
-- **四端共享**：Android / iOS / macOS / Windows 共用业务逻辑与大部分界面
-- **更多作业来源**：物理在线、CITEL（书面作业 + 编程练习），可与课程平台聚合为一个“作业”入口
-- **物理实验与演示实验**、**图书馆借阅**
-- **桌面小组件、灵动岛与实时活动**（iOS 灵动岛 / Android 16 实时动态）
-- **本地 AI 助手与 ChatGPT 插件**：用 AI 工具查询课表、成绩、作业
-- **应用中心与可自定义底栏**
+## 平台支持与安装路径
 
-## 📱 支持平台
+| 平台                           | 构建产物 / 包形式                                            | 系统钥匙串                                                   | 定时同步后端                         | 状态说明                                           |
+| ------------------------------ | ------------------------------------------------------------ | ------------------------------------------------------------ | ------------------------------------ | -------------------------------------------------- |
+| **Linux x86_64**               | 静态 musl 二进制、`.deb`、`.rpm`、`PKGBUILD`、`default.nix`  | `linux-native` / Secret Service（无钥匙串可选 `file` / `passphrase`） | `systemd --user`                     | 本地构建、解包与真机实测通过                       |
+| **macOS** (`arm64` / `x86_64`) | Universal / 单架构 `.tar.gz`                                 | Apple Keychain (`apple-native`)                              | `launchd` (`~/Library/LaunchAgents`) | 已完成源码与 CI 适配，待 `macos-latest` / 真机实测 |
+| **Windows x64**                | `campus-bjtu-<version>-windows-x64.zip`（含 `campus.exe` + `campus.ps1`） | Windows 凭据管理器                                           | 需手动或任务计划运行 `campus sync`   | 支持交叉构建（需 LLVM-MinGW 工具链）               |
 
-- **Android**：arm64-v8a `.apk`，Android 9.0 及以上（包名 `team.bjtuss.bjtuselfservice.kmp`，与原版包名不同，可共存）
-- **iOS**：unsigned `.ipa`，iOS 18.0 及以上（需自行签名侧载，可使用 SideStore；签名时须保留 App 扩展，否则小组件无法读取课表。参考 [iOS 自签与安装指南](docs/iOS-sign-guide.md)）
-- **macOS**：arm64 `.dmg`，macOS 12 及以上（仅支持 Apple Silicon 芯片 Mac，ad-hoc 签名，未公证，首次打开可能需要在终端执行 `sudo xattr -r -d com.apple.quarantine /Applications/交大自由行\ KMP.app`）
-- **Windows**：x64 `.msi` 安装包
-- 对于其他系统平台或架构，可以使用源码自行打包对应平台版本
+> 安装/使用本地 DEB/RPM 包不会自动向远端包仓库发布；macOS 如从浏览器直接下载未公证归档，首次运行前可执行 `xattr -d com.apple.quarantine ./campus`。
 
-### 🔐 智能登录
+---
 
-- iOS 和 Mac 可以调用系统“密码” App，选择 MIS 网页密码自动填充登录
-- 免验证码自动登录 MIS 系统
-- 学校要求验证码时显示图片，可刷新后手动输入；自动登录只提交一次密码，失败即停下，避免重复提交
-- 登录状态持久化，打开即用
-- 物理实验、演示实验、物理在线和 CITEL 需要单独配置账号密码，支持记住密码和自动登录
+## 快速上手
 
-### 📚 学业管理
+```sh
+# 1. （仅无桌面钥匙串的无头服务器需要）显式选择加密文件或口令后端
+campus config set vault.backend file
 
-- **成绩查询** — 查看成绩详情，按学年、课程类型（选修/必修等）筛选、排序、计算均分
-- **课程表** — 直观的课程表预览界面，支持本科生与研究生
-- **考试日程** — 考试安排一览，变动自动提醒
-- **智慧课程平台作业与课件** — 查看、筛选、排序作业，支持作业上传与下载；课件可单个下载或整课批量导出
-- **物理实验与物理演示实验（需单独配置账号密码，需校园网）** — 获取物理实验选课信息和已预约的演示实验，并显示在首页和课程表
-- **物理在线作业管理（需单独配置账号密码，需校园网）** — 查看课程、作业安排、批改信息和评语；保存作业文件并最终提交
-- **CITEL 作业（需单独配置账号密码）** — 同步书面作业与编程练习，支持报告文件增删替换和代码文件提交；查看折扣倍率及开始/折扣/截止节点；编程题显示评测结果，题面与测试用例可复制或保存为 Markdown，也可导出为文件夹
-- **作业聚合与搜索** — 课程平台、物理在线和 CITEL 默认合为一个“作业”入口（可在设置中分开）；支持搜索全部作业，不受筛选条件限制
+# 2. 登录统一认证（仅传 --remember 时保存密码，密码在终端隐藏输入）
+campus auth login --user 学号 --remember
 
-### 📬 信息服务
+# 3. 同步全部数据到本地缓存
+campus sync all
 
-- **校内邮箱** — 首页显示未读邮件数量，邮件展示支持 HTML 表格，支持写信/回复、附件查看与保存和在浏览器打开
-- **完美校园与校园网缴费** — 二维码弹窗，可保存二维码后用微信扫一扫进入；Android 另可直接打开完美校园 App
-
-### 📅 日历与提醒
-
-- 按照校历获取教学周安排，可正确处理国庆等长假导致的教学周变动
-- 课程表页面支持将课程表和物理实验导入手机日历（直接导入仅支持iOS，安卓支持导出为.ics文件）
-- 首页展示正在进行和即将开始的课程，以及 48 小时内截止的作业（含物理在线和 CITEL）；数据变动按来源弹窗提醒
-- 第二节在逸夫教学楼、思源西楼的课按错峰时间（10:30–12:20）显示，可在设置中关闭
-- **桌面小组件**（iOS / Android）：“临近课程”“今日课程”“本周课表”三种，支持浅色/深色
-- **灵动岛与实时活动**：
-  - iOS 上日程可以显示在灵动岛和实时活动里，并支持 Apple Watch 智能叠放。
-  - Android 16 及以上支持课程实时动态（Live Updates），在 HyperOS 等系统上会以灵动岛样式显示。
-  - 课前会准点出现，可以在「正在上课」或「即将上课」卡片上调整出现时间。
-
-### 🏫 校园工具
-
-- **教室占用查询与人数估计** — 查看教务系统的教室占用和第三方接口的教室人数侦测结果；突出显示当前节次并列出空闲教室
-- **图书馆借阅** — 统一认证登录后查看当前借阅与借阅历史，支持单本/批量续借，首页提供到期与逾期提醒
-- **校历** — 打开公众号文章查看学校最新校历
-- **成绩单下载** — 支持中英文成绩单快捷下载
-- **应用内更新** — 支持 GitHub / Gitee 双更新源，可在设置中选择；自动模式优先连接 GitHub，失败时切换 Gitee。
-
-### 🤖 AI 助手
-
-- **本地 AI 助手** — 可接入 Codex、Claude Code、WorkBuddy 等工具（Skill + CLI），在电脑上让 AI 读取本机缓存的课表、作业、考试、成绩和邮件；你明确要求时，还能按作业要求处理文件名并提交课程平台作业
-- **ChatGPT 插件** — 借助付费 ChatGPT 账号的 Sites 功能创建私人插件，即可用 ChatGPT 远程查询课表、成绩、作业等信息。数据由你自己的设备上报：手机每次刷新时上报；电脑可在后台定时同步，也可关闭后台同步，只在应用内刷新时上传
-
-### 🖥️ 电脑端
-
-- 支持开机启动、后台运行和静默启动
-- Windows 点关闭按钮可收进托盘，最小化为普通最小化
-
-## 🔒 隐私与安全
-
-- ✅ 验证码在本地显示、由你手动输入，**不上传任何数据到第三方服务器**
-- ✅ SSO 登录页面解析与密码加密在客户端完成（本地 SM2）
-- ✅ 账号密码仅存储在本地设备
-- ✅ 学业数据通过学校服务查询；教室人数与占用详情通过学校/项目服务获取，不上传账号密码
-- ✅ Android Keystore、Apple Keychain、Windows DPAPI 保存登录凭据
-- ✅ macOS/Windows 离线缓存字段使用系统密钥支持的 AES-256-GCM 加密
-
-### 🗑️ 卸载与本地数据清理
-
-- **Android / iOS**：卸载即清除应用私有数据；缓存数据库已设置不随 iCloud/iTunes 备份上云。
-
-- **Windows**：MSI 卸载会自动删除 `%LOCALAPPDATA%\BJTUselfServiceKMP`（离线缓存）和 `HKCU\Software\JavaSoft\Prefs\team\bjtuss\bjtuselfservice`（DPAPI 加密凭据）；升级安装不会清除数据。
-
-- **macOS**：拖拽删除 `.app` **不会清除用户数据**。卸载前请在应用内「设置 → 本地数据与会话 → 清除全部本地数据」执行全量清理；如已删除应用，可手动删除：
-
-  - `~/Library/Application Support/BJTUselfServiceKMP/`（AES-256-GCM 加密离线缓存）
-  - 「钥匙串访问」中服务名为 `team.bjtuss.bjtuselfservice.kmp.secrets` 的条目（登录凭据、缓存密钥、物理实验账号等合并为一条）
-  - 旧版分条名称 `team.bjtuss.bjtuselfservice.kmp.credentials`、`…cache-key`、`…physicslab` 会在新版首次成功读取后迁入上一条并删除
-  - `~/Library/Preferences/` 下 `team/bjtuss/bjtuselfservice` 相关的偏好文件（记住密码标记）
-
-本项目经过了多轮专门的安全审计与修复，使用不低于 GLM5.3 和 GPT Sol 5.6 的前沿模型。安全审查和修复文档记录见 [安全文档](docs/security)。
-
-## 🏗️ 技术架构
-
-**原安卓工程（迁移基线 `v1.7.1`）** 已于 1.8.6 从本仓库移除，完整快照存档在标签 [`archive/legacy-android-and-captcha-model`](https://github.com/JasonZhang1225/BJTUselfService-KMP-Refreshed/tree/archive/legacy-android-and-captcha-model)；技术栈为 Jetpack Compose + Material 3、Dagger Hilt、Room、OkHttp3 + Jsoup、Bouncy Castle (SM2)。原版后续的架构与依赖见[原版 README](https://github.com/HFDLYS/BJTUselfService#readme)。
-
-**KMP 刷新版（`multiplatform/`）** 共享业务与大部分 UI：
-
-```
-┌─────────────────────────────────────────────┐
-│              UI（Compose Multiplatform）      │
-│  Android / iOS / macOS / Windows 共享 Screen + 壳层 │
-├─────────────────────────────────────────────┤
-│           shared 领域 / 仓库 / 登录协议        │
-│  SQLDelight 缓存 · 平台 Keystore/Keychain     │
-│  Ktor + 各平台引擎 · HTML 解析                 │
-└─────────────────────────────────────────────┘
+# 4. 启动「交大自由行 CLI」全屏工作台（非交互管道环境下可使用 campus tui）
+campus
 ```
 
-### 主要依赖（KMP）
+首次同步后，常用离线查询无需联网即可毫秒级返回：
 
-| 类别   | 技术                                            |
-| ---- | --------------------------------------------- |
-| UI   | Compose Multiplatform + Material 3            |
-| 网络   | Ktor                                          |
-| 本地缓存 | SQLDelight                                    |
-| HTML 解析 | Ksoup                                       |
-| 序列化  | kotlinx.serialization                         |
-| 凭据   | Android Keystore / Apple Keychain / Windows DPAPI |
-| 宿主   | androidApp · iosApp · desktopApp · windowsApp |
-
-## 🚀 从源码快速开始
-
-### 环境要求
-
-- JDK 21+（推荐 Android Studio 自带 JBR 21 或本机 Temurin）
-- Android SDK（minSdk 28，即 Android 9.0）
-- Xcode（构建 iOS，最低部署版本 iOS 18.0）
-- Apple Silicon macOS（Desktop 当前 arm64 自包含包）
-
-### 构建步骤（KMP）
-
-```bash
-# 1. 克隆本仓库
-git clone https://github.com/JasonZhang1225/BJTUselfService-KMP-Refreshed.git
-cd BJTUselfService-KMP-Refreshed
-
-# 2. 进入 multiplatform 工程
-cd multiplatform
-chmod +x gradlew
-
-# 3. Android debug
-./gradlew :androidApp:assembleDebug
-
-# 4. macOS DMG（Apple Silicon）
-./gradlew :desktopApp:packageDmg
-
-# 5. Windows MSI（需在 Windows x64 上执行）
-./gradlew :windowsApp:packageMsi
-
-# 6. iOS 未签名构建（之后打成 IPA 自签侧载，流程见 .github/workflows/kmp-package.yml）
-xcodebuild -project iosApp/iosApp.xcodeproj -scheme iosApp -configuration Release \
-  -destination 'generic/platform=iOS' CODE_SIGNING_ALLOWED=NO build
+```sh
+campus schedule today --offline
+campus grades gpa --offline
+campus exams --upcoming --offline
+campus card --offline
 ```
 
-### 仓库与发布
+---
 
-- 本仓库：[JasonZhang1225/BJTUselfService-KMP-Refreshed](https://github.com/JasonZhang1225/BJTUselfService-KMP-Refreshed)（四端发布见 [Releases](https://github.com/JasonZhang1225/BJTUselfService-KMP-Refreshed/releases)，各版本说明见 [docs/releases](docs/releases)）
-- Gitee 镜像与下载：[Gitee Releases](https://gitee.com/zjg1225/BJTUselfService-KMP-Refreshed/releases)。
-- 原版安卓：[HFDLYS/BJTUselfService](https://github.com/HFDLYS/BJTUselfService)
+## 全屏工作台 (TUI)
 
-## 🤝 贡献者
+在交互终端直接运行 `campus` 或 `campus tui`（加 `--offline` 可禁止联网同步）：
 
-感谢上游项目与以下所有为本项目做出贡献的朋友们：
+| 标签页 (`1`–`9`, `0`) | 数据源       | 专属功能                                                     |
+| --------------------- | ------------ | ------------------------------------------------------------ |
+| `1` 课表              | `courses`    | 按 `v` 切换列表/周历网格；`+` / `-` 切换教学周；`[` / `]` 窄屏横向翻页 |
+| `2` 作业              | `homework`   | `Enter` 查看纯文本详情；绿/红区分已提交与未提交              |
+| `3` 成绩              | `grades`     | 底部展示当前范围加权均分与 4.0 制 GPA                        |
+| `4` 考试              | `exams`      | 考场、时间与状态一览                                         |
+| `5` 教室              | `rooms`      | `b` / `B` 选楼宇，`+` / `-` 选周次，`r` 查询，红/棕/蓝/绿/黄区分占用状态 |
+| `6` 一卡通            | `card`       | 校园卡余额、网费与未读邮件统计                               |
+| `7` 学年历            | `calendar`   | 第 16 周倒排至第 1 周，北京时间当前周标为绿色「本周」        |
+| `8` 课件              | `courseware` | `r` 同步目录，`d` 下载所选资源到 `./courseware/`             |
+| `9` 同步              | `sync`       | 查看各模块最近同步状态、时间与失败原因                       |
+| `0` 物理在线          | `phyvlab`    | `Enter` 查看实验要求与评语，`d` 下载老师附件，`r` 同步（支持草稿/逾期颜色标注） |
 
-- [HFDLYS](https://github.com/HFDLYS)
-  - 原版开发者，项目起源
-- [optsimauth](https://github.com/optsimauth)
-  - 重构了整个项目的架构，优化了代码结构，以及后续若干跟进
-  - 开发 [BJTUselfServiceAIO 社区版](https://github.com/optsimauth/BJTUselfServiceAIO)；本项目首页课表的展示、教室查询整合和可配置底栏的改造，参考了该项目的功能与交互设计
-- [guh0613](https://github.com/guh0613)
-  - 提供自动构建与发布
-- [carolyn-sun](https://github.com/carolyn-sun)
-  - 优化了工作流配置
-- [NAPH130](https://github.com/NAPH130)
-  - 修复若干 bug
-- [B-Silva20](https://github.com/B-Silva20)
-  - 提供了成绩自选课程计算
-  - 图书馆借阅
-- [wangxiaobo1747](https://github.com/wangxiaobo1747)
-  - 提供了自定义壁纸和桌面课程表小组件
-- [Peterloses](https://github.com/Peterloses)
-  - 优化底部导航、壁纸和玻璃态界面，改进课程表小组件
-- [Dontplay0112](https://github.com/Dontplay0112)
-  - 修复研究生获取课表时崩溃的问题
-- [lsr0LSR](https://github.com/lsr0LSR)
-  - 修复作业上传接口
-- [Vannnesa](https://github.com/Vannnesa)
-  - 重构应用界面，实现原生邮箱与教室规划，新增课程高亮及过期考试样式
-- [JasonZhang1225](https://github.com/JasonZhang1225)
-  - KMP 多端迁移（Android / iOS / macOS / Windows）、物理在线、物理实验、CITEL、新版SSO、ChatGPT插件等
+### 通用快捷键
+
+| 按键                                                        | 操作                                                         |
+| ----------------------------------------------------------- | ------------------------------------------------------------ |
+| `Tab` / `Shift+Tab`、`←` / `→`、`1`–`9`、`0`                | 切换页面                                                     |
+| `↑` / `↓`、`j` / `k`、`PageUp` / `PageDown`、`Home` / `End` | 移动选中行或翻页                                             |
+| `Enter` / `Esc`                                             | 打开或关闭当前记录详情弹窗（弹窗内支持 `↑↓` / `PageUp` / `PageDown` 滚动） |
+| `/`                                                         | 进入当前页实时关键词筛选（`Enter` 锁定，`Esc` 清除）         |
+| `r`                                                         | 在后台刷新当前页数据并在底栏显示结果                         |
+| `q`、`Ctrl+C`                                               | 退出工作台                                                   |
+
+> 颜色自动跟随终端状态，可通过 `--color never` 或环境变量 `NO_COLOR=1` 关闭；禁用颜色时教室占用表会附带字符图例。
+
+---
+
+## CLI 命令速查
+
+全局选项（所有子命令均可使用）：
+
+- `-a, --account <学号>`：临时指定操作账号
+- `--offline`：严格离线模式，仅读取本地缓存
+- `--refresh`：强制联网刷新后再输出（与 `--offline` 互斥）
+- `--json` / `--format <table|tsv|json>`：切换输出格式
+- `--color <auto|always|never>`：控制 ANSI 着色
+- `--tz <时区>`：覆盖时间显示时区
+- `-q` / `-v`：静默模式或输出详细日志
+
+### 1. 账号与认证 (`auth`)
+
+```sh
+campus auth login --user 学号 --remember          # 隐藏提示输入密码并记住
+campus auth login --user 学号 --password-stdin    # 从标准输入读取密码（适合脚本/秘密管理器）
+campus auth login --user 学号 --captcha           # 需要图形验证码时保存图片路径并交互输入
+campus auth list                                  # 列出本地已保存账号
+campus auth switch 学号                           # 切换默认账号
+campus auth status                                # 查看本地会话与凭据保存状态
+campus auth logout --forget                       # 注销并清除本地凭据与缓存会话
+```
+
+- 自动登录单次最多发起 3 次登录页 GET 与 1 次密码 POST；遇到密码错误、验证码要求或非预期响应即刻停止，绝不盲目重试导致锁号。
+
+### 2. 课表、成绩、考试、一卡通与校历
+
+```sh
+campus schedule today --offline                   # today | tomorrow | now | week | all
+campus schedule week 12 --grid --offline          # 周课表网格视图
+campus grades --term 2025-2026-2 --offline
+campus grades --type required --sort desc --detail --offline
+campus grades gpa --offline                       # 100 分制加权均分与 4.0 制 GPA
+campus grades select add 1 3 --offline            # 按成绩输出 index 自选计算范围（add/rm/clear）
+campus grades gpa --selected --offline
+campus exams --upcoming --offline                 # --upcoming | --all | --course 关键字
+campus card --history --offline                   # 一卡通与网费
+campus card topup                                 # 打印缴费二维码与链接
+campus calendar now --offline                     # now | weeks（可加 --term）
+```
+
+- **均分与 GPA 规则**：按学分加权；百分制课程采用原分计算均分，纯字母等级课程采用项目既定折算表；`P/F` 两级制不计入均值，接口仅返回单独 `F` 无法判别评分制时暂不计入并在 `grades gpa --json` 中标出待确认数。
+
+### 3. 教室查询 (`rooms`)
+
+```sh
+campus rooms buildings                            # 列出教学楼 ID
+campus rooms free --building 11 --week 12 --at 'tue 3' --refresh
+campus rooms grid 11 --week 12 --room SY201 --offline
+campus rooms live 本部 --free --min-cap 40 --json # 实时教室人数估计
+campus config set rooms.live off                  # 关闭第三方人数估计请求
+```
+
+- 教室网格按「学期 + 楼宇 + 周次」隔离缓存；未知占用状态不视为空闲。
+
+### 4. 作业与课件下载 (`homework` / `courseware`)
+
+```sh
+campus homework list --offline
+campus homework show <作业ID> --offline --json
+campus homework download <作业ID> -o ./attachments
+
+campus courseware ls --offline                    # 列出课程目录
+campus courseware ls <课程ID> <文件夹ID> --offline
+campus courseware get <课程ID>:<资源ID> -o ./courseware
+campus courseware lessons <课程ID> --json
+campus courseware record <课程ID>:<课节ID> --streams teacher,screen --remux -o ./recordings
+```
+
+- **旧版教学平台只读兼容**：当学校入口跳转到旧版教学端点时，默认 HTTPS 模式会明确提示而不自动降级明文传输。如需启用原版只读兼容流程，可显式开启：
+
+  ```sh
+  campus config set homework.legacy_http on       # 持久化开关（courseware.legacy_http 同理）
+  CAMPUS_PORTAL_COURSEWARE_LEGACY_HTTP=on campus sync courseware  # 单次环境变量启用
+  ```
+
+- **下载与录像**：课件按 4 MiB Range 校验 `ETag` 断点续传；录像支持 VOD HLS 播放列表 4 路并发与顺序合并，拒绝加密/直播/fMP4 流；`--remux` 调用本机 `ffmpeg -c copy`。下载永不覆盖已有文件，断点记录仅保留 URL 摘要。
+
+### 5. 物理在线 (`phyvlab`)
+
+物理在线（`phyvlab.bjtu.edu.cn`）使用独立账号凭据与 `MoodleSession` 会话，与统一认证隔离保存：
+
+```sh
+campus phyvlab login --user 学号 --remember       # 遇阿里云验证码时拉起浏览器 127.0.0.1 回环页完成校验
+campus phyvlab login --user 学号 --no-browser     # 仅打印本地验证 URL（SSH / 无桌面环境）
+campus phyvlab status                             # 检查配置状态与会话可用性
+campus phyvlab courses --offline                  # 已选物理实验课程与进度
+campus phyvlab list --pending --offline           # 待完成作业（可加 --course 筛选）
+campus phyvlab show <作业ID> --offline            # 作业说明、状态、批改成绩与附件列表
+campus phyvlab download <作业ID> -o ./lab_files   # 下载老师附件
+campus phyvlab upload <作业ID> report.pdf         # 上传草稿（不直接最终提交）
+campus phyvlab upload <作业ID> --rm old.pdf       # 从草稿中移除文件
+campus phyvlab finalize <作业ID> --yes            # 确认提交声明并最终提交
+campus phyvlab logout --forget
+```
+
+- 遇验证码时，后台同步流程（`campus sync phyvlab`）绝不自动提交密码，而是返回需人机验证提示；若账号首次登录被服务端跳往 `/user/edit.php` 完善资料，会话仍保持已保存并在获取列表时给出 `phyvlab_profile_incomplete` 引导。
+
+### 6. 同步、定时任务与导出 (`sync` / `changes` / `export`)
+
+```sh
+campus sync all                                   # 支持逗号分隔模块，如 sync grades,phyvlab
+campus sync all --notify                          # 成绩或考试变动时发送系统通知（notify-send / osascript）
+campus sync status --json                         # 各数据集最近同步结果与原因
+campus sync timer install --every 1h              # 安装定时后台同步（30m..168h，Linux systemd / macOS launchd）
+campus sync timer remove                          # 卸载定时任务
+campus changes --unseen --mark-seen --json        # 查看并标记缓存数据变更
+campus export ics --weeks 1-18 -o schedule.ics --offline
+campus export csv grades -o grades.csv --offline
+campus completions zsh                            # 生成 bash / zsh / fish 补全脚本
+```
+
+---
+
+## 输出格式、退出码与配置
+
+### JSON 协议与退出码
+
+`--json` 输出统一信封结构（非旧版 JVM `agent` 协议）：
+
+```json
+{
+  "schema": 1,
+  "command": "grades",
+  "account": "学号",
+  "generated_at": 1763560000,
+  "freshness": { "source": "cache", "stale": false },
+  "data": [],
+  "warnings": []
+}
+```
+
+| 退出码 | 含义               | 常见原因                                       |
+| ------ | ------------------ | ---------------------------------------------- |
+| `0`    | 成功               | 查询或同步全部成功                             |
+| `1`    | 本地错误           | 数据库/文件系统/配置异常                       |
+| `2`    | 无可用缓存         | 离线模式无缓存且无网络更新                     |
+| `3`    | 需要认证或人工处理 | 会话过期、密码错误、需人机验证或完善资料       |
+| `4`    | 部分同步成功       | 一次同步多个模块时部分成功、部分失败           |
+| `64`   | 参数错误           | 命令用法、取值范围或缺少确认标志（如 `--yes`） |
+| `69`   | 网络错误           | 上游不可达或超时                               |
+| `75`   | 同步锁占用         | 已有另一个同步进程持有 `sync.lock`             |
+
+### 配置与缓存管理
+
+配置文件采用 `key = value` 格式，支持同名的 `CAMPUS_PORTAL_<KEY_UPPER>` 环境变量覆盖：
+
+```sh
+campus config list
+campus config get auto_refresh
+campus config set auto_refresh off                # off | background | foreground
+campus config set grades.fresh_seconds 21600      # 自定义新鲜度阈值（秒）
+campus cache info --json
+campus cache clear --yes                          # 清空当前账号业务缓存（保留凭据与配置）
+campus cache vacuum
+```
+
+支持的配置键包括：`auto_refresh`、`vault.backend`、`rooms.live`、`homework.legacy_http`、`courseware.legacy_http`、`grades.fresh_seconds` 以及用于测试/私有镜像覆盖的 `endpoints.{mis,sso,aa,calendar,smart,headcount,phyvlab}`。
+
+---
+
+## 数据目录、凭据与安全模型
+
+- **Linux / macOS（遵循 XDG 规范，目录强制 `0700`、文件 `0600`）**：
+  - 数据库：`$XDG_DATA_HOME/campus-portal/campus.db`（默认 `~/.local/share/campus-portal/`）
+  - 配置文件：`$XDG_CONFIG_HOME/campus-portal/config`（默认 `~/.config/campus-portal/`）
+  - 临时验证码缓存：`$XDG_CACHE_HOME/campus-portal/`（默认 `~/.cache/campus-portal/`）
+  - 进程同步锁：`$XDG_RUNTIME_DIR/campus-portal/sync.lock`（无则回退至缓存目录）
+- **Windows**：默认全部置于 `%LOCALAPPDATA%\campus-portal\`。
+- **密钥与加密存储**：
+  - 密码（仅 `--remember` 时）与会话 Cookie 始终经 `XChaCha20-Poly1305` 加密后存储，默认主密钥托管在系统钥匙串；无钥匙串环境可选用 `file`（本地密钥文件）或 `passphrase`（由 `CAMPUS_PORTAL_PASSPHRASE` 解锁的 Argon2 密钥）。
+  - 如需将课表、成绩等业务表本身也落盘加密，可启用 `sqlcipher` 特性构建全库加密版本；注意普通 SQLite 与 SQLCipher 库文件不可混用，请配合独立 `XDG_DATA_HOME`。
+
+---
+
+## 从源码构建与打包
+
+### Linux（动态链接与静态 musl / DEB / RPM）
+
+```sh
+cd linux
+cargo build --locked --release -p campus-cli
+./target/release/campus --help
+
+# 静态 musl 构建（要求 rust-lld 与 musl-gcc）+ 打包 DEB/RPM
+rustup target add x86_64-unknown-linux-musl
+CC_x86_64_unknown_linux_musl=musl-gcc cargo build --locked --release \
+  --target x86_64-unknown-linux-musl -p campus-cli
+python3 scripts/package.py target/x86_64-unknown-linux-musl/release/campus
+```
+
+- 可选特性：`--no-default-features`（移除钥匙串与媒体模块进一步缩减体积）、`--features sqlcipher`（全库加密）。
+- Arch Linux `PKGBUILD` 与 Nix `default.nix` 模板位于 [packaging/](packaging/)。
+
+### macOS（Apple Silicon / Intel / Universal）
+
+```sh
+cd linux
+# 本机单架构构建与打包
+cargo build --locked --release -p campus-cli
+python3 scripts/package-macos.py target/release/campus --arch arm64
+
+# Universal 通用包 (arm64 + x86_64)
+rustup target add aarch64-apple-darwin x86_64-apple-darwin
+cargo build --locked --release --target aarch64-apple-darwin -p campus-cli
+cargo build --locked --release --target x86_64-apple-darwin -p campus-cli
+lipo -create -output artifacts/campus-macos-universal \
+  target/aarch64-apple-darwin/release/campus \
+  target/x86_64-apple-darwin/release/campus
+python3 scripts/package-macos.py artifacts/campus-macos-universal --arch universal
+```
+
+### Windows x64（Linux 交叉构建）
+
+```sh
+cd linux
+rustup target add x86_64-pc-windows-gnullvm
+CC_x86_64_pc_windows_gnullvm=x86_64-w64-mingw32-clang \
+AR_x86_64_pc_windows_gnullvm=llvm-ar \
+CARGO_TARGET_X86_64_PC_WINDOWS_GNULLVM_LINKER=x86_64-w64-mingw32-clang \
+  cargo build --locked --release --target x86_64-pc-windows-gnullvm -p campus-cli
+python3 scripts/package-windows.py target/x86_64-pc-windows-gnullvm/release/campus.exe
+```
+
+---
+
+## 测试、对照验证与性能基准
+
+```sh
+cd linux
+cargo fmt --all -- --check
+cargo clippy --locked --workspace --all-targets -- -D warnings
+cargo test --locked --workspace
+cargo check --locked -p campus-cli --no-default-features
+cargo test --locked -p campus-db --features sqlcipher
+
+# Kotlin <-> Rust 解析与 SM2 密文逐字节对照
+python3 scripts/prepare-kotlin-oracle.py
+bash ../multiplatform/gradlew -p tests/kotlin-oracle --no-daemon -q run \
+  --args="$PWD/tests/fixtures" > artifacts/kotlin.json
+cargo run --locked -q -p campus-net --example oracle_vectors -- tests/fixtures > artifacts/rust.json
+python3 scripts/compare-oracle.py artifacts/kotlin.json artifacts/rust.json
+
+# 体积与离线启动延迟门禁检查（静态二进制 <= 10 MiB）
+python3 scripts/benchmark.py target/x86_64-unknown-linux-musl/release/campus
+```
+
+- 开发专用页面脱敏工具（需启用 `developer` 特性，禁止用于 release 构建）：  
+  `cargo run -p campus-cli --features developer -- debug capture --redact --input page.html -o fixture.html`
+- [`fuzz/`](fuzz/) 提供登录页、校历、教学周与 HLS 播放列表解析的 `libFuzzer` 目标。详细测试与发布状态见 [docs/STATUS.md](docs/STATUS.md)。
