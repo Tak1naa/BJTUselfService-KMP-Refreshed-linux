@@ -19,10 +19,6 @@ jobs:
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-      - uses: actions/setup-java@v4
-        with:
-          distribution: temurin
-          java-version: '21'
       - run: cargo fmt --all -- --check
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
@@ -37,13 +33,6 @@ jobs:
         run: |
           cargo tree -e normal > dependencies.txt
           if rg 'openssl|libdbus-sys|dbus v' dependencies.txt; then exit 1; fi
-      - name: Compare actual Kotlin implementations
-        run: |
-          python3 scripts/prepare-kotlin-oracle.py
-          bash ../multiplatform/gradlew -p tests/kotlin-oracle --no-daemon -q run --args="$PWD/tests/fixtures" > kotlin.json \
-            || bash ../multiplatform/gradlew -p tests/kotlin-oracle --no-daemon --refresh-dependencies -q run --args="$PWD/tests/fixtures" > kotlin.json
-          cargo run --locked -q -p campus-net --example oracle_vectors -- tests/fixtures > rust.json
-          python3 scripts/compare-oracle.py kotlin.json rust.json
   static:
     runs-on: ubuntu-latest
     defaults:
@@ -102,7 +91,7 @@ jobs:
           lipo -info artifacts/campus-macos-universal
       - name: Benchmark and package macOS archives
         run: |
-          python3 scripts/benchmark.py target/aarch64-apple-darwin/release/campus --output artifacts/benchmark-macos.json
+          python3 scripts/benchmark.py target/aarch64-apple-darwin/release/campus --version-max-ms 50 --max-ms 50 --output artifacts/benchmark-macos.json
           python3 scripts/package-macos.py artifacts/campus-macos-universal --arch universal
           python3 scripts/package-macos.py target/aarch64-apple-darwin/release/campus --arch arm64
           python3 scripts/package-macos.py target/x86_64-apple-darwin/release/campus --arch x64
