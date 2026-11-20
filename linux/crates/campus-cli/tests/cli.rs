@@ -149,6 +149,19 @@ fn missing_homework_cache_preserves_last_sync_failure() {
     assert_eq!(value["schema"], 1);
     assert_eq!(value["error"]["reason"], "secure_channel");
     assert!(out.stderr.is_empty());
+
+    db.failure(
+        db.account("fixture-user").unwrap(),
+        "courseware",
+        "failed",
+        "smart_legacy_http",
+        2,
+    )
+    .unwrap();
+    let out = f.cmd().args(["courseware", "--offline"]).output().unwrap();
+    assert_eq!(out.status.code(), Some(2));
+    let text = String::from_utf8(out.stderr).unwrap();
+    assert!(text.contains("campus config set courseware.legacy_http on"));
 }
 
 #[test]

@@ -26,9 +26,9 @@ fn values<T: serde::Serialize>(rows: Vec<T>) -> Result<Vec<Value>> {
 fn article_session_id(
     body: &str,
     cookie: Option<Zeroizing<String>>,
-    legacy_courseware: bool,
+    legacy_mode: bool,
 ) -> Result<Option<Zeroizing<String>>> {
-    if cookie.is_some() && !legacy_courseware {
+    if cookie.is_some() && !legacy_mode {
         return Ok(cookie);
     }
 
@@ -260,7 +260,8 @@ impl Fetcher<'_> {
                 .find(|(key, _)| key.eq_ignore_ascii_case("JSESSIONID"))
                 .map(|(_, value)| zeroize::Zeroizing::new(value.to_owned()))
         };
-        let initial = if courseware { cookie() } else { None };
+        let legacy = transport.is_legacy();
+        let initial = if courseware || legacy { cookie() } else { None };
         let article = fetcher
             .smart_body(
                 ARTICLE,
@@ -268,7 +269,7 @@ impl Fetcher<'_> {
                 initial.as_ref().map(|id| id.as_str()),
             )
             .await?;
-        let session = article_session_id(&article, initial, transport.legacy_courseware())?
+        let session = article_session_id(&article, initial, legacy)?
             .or_else(|| if courseware { None } else { cookie() })
             .ok_or(Error::Malformed("smart session ID"))?;
         let semester = fetcher

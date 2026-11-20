@@ -161,7 +161,20 @@ pub fn error(args: &Args, error: &Error) {
     }
     let next = match (error, name) {
         (Error::CacheUnavailable(reason), "homework" | "courseware")
-            if matches!(reason.as_str(), "secure_channel" | "smart_legacy_http") =>
+            if reason == "smart_legacy_http" =>
+        {
+            format!(
+                "如已手动关闭兼容，可运行 campus config set {name}.legacy_http on 恢复；否则请通过学校智慧教学平台查看。"
+            )
+        }
+        (Error::SmartLegacyHttp, "homework" | "courseware") => {
+            format!("如已手动关闭兼容，可运行 campus config set {name}.legacy_http on 恢复。")
+        }
+        (Error::SmartLegacyHttp, _) => {
+            "如已手动关闭兼容，可运行 campus config set homework.legacy_http on / courseware.legacy_http on 恢复。".into()
+        }
+        (Error::CacheUnavailable(reason), "homework" | "courseware")
+            if reason == "secure_channel" =>
         {
             "请通过学校智慧教学平台查看。同步记录可用 campus sync status 查看。".into()
         }

@@ -1188,8 +1188,11 @@ pub(crate) fn read_password_input(password_stdin: bool, prompt: &str) -> Result<
                 "use --password-stdin for non-interactive login".into(),
             ));
         }
+        use std::io::Write;
+        eprint!("{prompt}");
+        io::stderr().flush().map_err(campus_db::storage)?;
         Ok(Zeroizing::new(
-            rpassword::prompt_password(prompt).map_err(campus_db::storage)?,
+            rpassword::read_password().map_err(campus_db::storage)?,
         ))
     }
 }

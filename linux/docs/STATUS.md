@@ -6,8 +6,10 @@
 
 - 定位并修复 `mis.bjtu.edu.cn` 自 2026-11-17 更换 `*.bjtu.edu.cn` 新证书后服务端漏发 `GeoTrust G2 TLS CN RSA4096 SHA256 2022 CA1` 中间证书导致 `rustls` 报错 `network request failed`（退出码 `69`）的问题（`0.1.9` 在 Wine 与本机 Linux 均已复现该问题）。
 - 在 `campus-net` 中嵌入该 1,482 字节公开中间证书（与 `sso.bjtu.edu.cn` 及 DigiCert AIA 逐字节一致），仅当 `*.bjtu.edu.cn` 服务端未下发任何中间证书且触发 `UnknownIssuer` 时作为非信任中间提示参与链校验，仍严格校验完整证书链至 `DigiCert Global Root G2` 根证书与主机名；ALPN 保持 `http/1.1`。
-- 77 项工作区测试（`campus-net` 新增域匹配单测共 29 项）、`--no-default-features` 编译、`sqlcipher` 7 项测试、Clippy 与格式检查全部通过；实网直连 `mis.bjtu.edu.cn` + `sso.bjtu.edu.cn` 登录握手与 `calendar now --refresh` 恢复正常。
-- 发布静态 musl 二进制与 Linux DEB / RPM / `tar.gz`、macOS Universal / `arm64` / `x64`、Windows x64 ZIP，并下载 CI Windows 包通过 Wine 复测。
+- 修复 Windows 终端（GBK/CP936）下 `campus auth login` / `campus phyvlab login` 密码提示词中文乱码：由 `rpassword::prompt_password` 直接写 UTF-8 到 `CONOUT$` 改为标准库 `eprint!`（Windows 走 UTF-16 `WriteConsoleW`）+ `rpassword::read_password()`。
+- 默认启用 `homework.legacy_http` 与 `courseware.legacy_http` 的受限只读兼容（仅在 MIS 跳转到 `http://123.121.147.7:88/` 时生效，可通过 `campus config set ... off` 关闭），并统一旧版作业与课件会话的 `article["sessionId"]` / `JSESSIONID` 读取逻辑及终端/TUI 报错引导。
+- 78 项工作区测试（含 `campus-net` 29 项、`campus-sync` 5 项、`campus-cli` 13 项等）、`--no-default-features` 编译、`sqlcipher` 7 项测试、Clippy 与格式检查全部通过；静态 musl 二进制体积 `10,242,592` 字节（9.77 MiB）。
+- 发布静态 musl 二进制与 Linux DEB / RPM / `tar.gz`、macOS Universal / `arm64` / `x64`、Windows x64 ZIP。
 
 ## 0.1.9 物理在线与本地打包
 

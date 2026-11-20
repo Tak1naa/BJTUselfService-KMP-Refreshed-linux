@@ -189,8 +189,8 @@ pub fn run(
         grades: Vec::new(),
         worker: None,
         colored: !matches!(args.color, Color::Never) && std::env::var_os("NO_COLOR").is_none(),
-        legacy_homework: config.get("homework.legacy_http").as_deref() == Some("on"),
-        legacy_courseware: config.get("courseware.legacy_http").as_deref() == Some("on"),
+        legacy_homework: config.get("homework.legacy_http").as_deref() != Some("off"),
+        legacy_courseware: config.get("courseware.legacy_http").as_deref() != Some("off"),
     };
     app.load(db, account)?;
     let mut terminal = ratatui::try_init()
@@ -277,8 +277,8 @@ impl App {
                         None => db.sync_failure(id, key)?.map_or_else(
                             || "暂无缓存。按 r 同步当前页。".into(),
                             |reason| match (dataset, reason.as_str()) {
-                                ("courseware", "smart_legacy_http") => {
-                                    "课件服务转到旧版 HTTP。兼容模式需手动开启。".into()
+                                ("homework" | "courseware", "smart_legacy_http") => {
+                                    "服务转到旧版 HTTP，当前配置已关闭 legacy_http 兼容。".into()
                                 }
                                 (
                                     "phyvlab",
@@ -918,9 +918,14 @@ impl App {
             return;
         }
         let page = self.page();
+        let legacy_notice = match page.dataset {
+            "homework" if self.legacy_homework => Some(" 作业兼容已开启 · HTTP 明文"),
+            "courseware" if self.legacy_courseware => Some(" 课件兼容已开启 · HTTP 明文"),
+            _ => None,
+        };
         let [header, notice, nav, body, summary, status, controls] = Layout::vertical([
             Constraint::Length(1),
-            Constraint::Length(u16::from(self.legacy_homework || self.legacy_courseware)),
+            Constraint::Length(u16::from(legacy_notice.is_some())),
             Constraint::Length(2),
             Constraint::Min(3),
             Constraint::Length(u16::from(page.dataset == "grades" && area.height >= 10)),
@@ -946,12 +951,7 @@ impl App {
             ])),
             header,
         );
-        if self.legacy_homework || self.legacy_courseware {
-            let notice_text = match (self.legacy_homework, self.legacy_courseware) {
-                (true, true) => " 作业/课件兼容已开启 · HTTP 明文",
-                (true, false) => " 作业兼容已开启 · HTTP 明文",
-                _ => " 课件兼容已开启 · HTTP 明文",
-            };
+        if let Some(notice_text) = legacy_notice {
             frame.render_widget(Paragraph::new(notice_text).style(self.style(AMBER)), notice);
         }
         if area.width >= 88 {

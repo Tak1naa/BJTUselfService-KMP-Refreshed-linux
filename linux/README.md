@@ -192,8 +192,8 @@ campus courseware get <课程ID>:<资源ID> -o ./courseware   # 支持 4 MiB 分
 campus courseware lessons <课程ID>
 campus courseware record <课程ID>:<课节ID> --streams teacher,screen --remux -o ./videos
 ```
-> 若学校跳转至旧版 HTTP 教学服务导致同步提示切换模式，可按需开启只读兼容（用完建议关闭）：
-> `campus config set homework.legacy_http on` / `campus config set courseware.legacy_http on`
+> 若学校跳转至旧版 HTTP 教学服务（`123.121.147.7:88`），默认自动启用受限的只读兼容会话；如需强制仅走 HTTPS，可关闭对应兼容：
+> `campus config set homework.legacy_http off` / `campus config set courseware.legacy_http off`
 
 ### 6. 物理在线实验作业（独立账号）
 

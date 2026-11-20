@@ -564,6 +564,9 @@ impl SchoolTransport {
         }
         self.once(Method::GET, url, None, false, session).await
     }
+    pub(crate) fn is_legacy(&self) -> bool {
+        self.legacy_scope.is_some()
+    }
     pub(crate) fn legacy_courseware(&self) -> bool {
         self.legacy_scope == Some(LegacyScope::Courseware)
     }

@@ -17,8 +17,8 @@ use serde_json::{Value, json};
 use std::collections::BTreeMap;
 pub fn endpoints(config: &Config) -> Result<Endpoints> {
     let mut e = Endpoints::default();
-    e.legacy_homework = config.get("homework.legacy_http").as_deref() == Some("on");
-    e.legacy_courseware = config.get("courseware.legacy_http").as_deref() == Some("on");
+    e.legacy_homework = config.get("homework.legacy_http").as_deref() != Some("off");
+    e.legacy_courseware = config.get("courseware.legacy_http").as_deref() != Some("off");
     for key in [
         "mis",
         "sso",
@@ -567,5 +567,30 @@ mod tests {
         clear_phyvlab_credentials(&db, &v, account, "u1").unwrap();
         assert!(load_phyvlab_credentials(&db, &v, "u1").unwrap().is_none());
         let _ = std::fs::remove_dir_all(root);
+    }
+
+    #[test]
+    fn legacy_http_defaults_on_and_respects_explicit_off() {
+        let mut config = Config::default();
+        let default_ep = endpoints(&config).unwrap();
+        assert!(default_ep.legacy_homework);
+        assert!(default_ep.legacy_courseware);
+
+        config
+            .values
+            .insert("homework.legacy_http".into(), "off".into());
+        config
+            .values
+            .insert("courseware.legacy_http".into(), "off".into());
+        let off_ep = endpoints(&config).unwrap();
+        assert!(!off_ep.legacy_homework);
+        assert!(!off_ep.legacy_courseware);
+
+        config
+            .values
+            .insert("homework.legacy_http".into(), "on".into());
+        let mixed_ep = endpoints(&config).unwrap();
+        assert!(mixed_ep.legacy_homework);
+        assert!(!mixed_ep.legacy_courseware);
     }
 }
