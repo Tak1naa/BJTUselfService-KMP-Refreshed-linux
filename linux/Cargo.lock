@@ -465,7 +465,7 @@ checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 
 [[package]]
 name = "campus-cli"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "anstyle",
  "assert_cmd",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "campus-core"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "jiff",
  "proptest",
@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "campus-db"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "argon2",
  "campus-core",
@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "campus-net"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "base64 0.22.1",
  "campus-core",
@@ -538,6 +538,8 @@ dependencies = [
  "reqwest",
  "reqwest_cookie_store",
  "rustix",
+ "rustls",
+ "rustls-pki-types",
  "serde",
  "serde_json",
  "sha2",
@@ -546,6 +548,7 @@ dependencies = [
  "thiserror",
  "tokio",
  "url",
+ "webpki-roots",
  "windows-sys 0.61.2",
  "wiremock",
  "zeroize",
@@ -553,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "campus-sync"
-version = "0.1.9"
+version = "0.1.10"
 dependencies = [
  "campus-core",
  "campus-db",

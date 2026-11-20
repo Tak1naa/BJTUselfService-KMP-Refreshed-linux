@@ -1,6 +1,13 @@
 # Linux Rust 本地验证记录
 
-日期：2026-11-18。分支：`feat/linux-rust-cli`，基于实际 BJTU 仓库。Kotlin Multiplatform 源码保留，可继续使用。
+日期：2026-11-20。分支：`main`（由 `feat/linux-rust-cli` 合入），基于实际 BJTU 仓库。Kotlin Multiplatform 源码保留，可继续使用。
+
+## 0.1.10 BJTU TLS 中间证书补全与跨平台修复
+
+- 定位并修复 `mis.bjtu.edu.cn` 自 2026-11-17 更换 `*.bjtu.edu.cn` 新证书后服务端漏发 `GeoTrust G2 TLS CN RSA4096 SHA256 2022 CA1` 中间证书导致 `rustls` 报错 `network request failed`（退出码 `69`）的问题（`0.1.9` 在 Wine 与本机 Linux 均已复现该问题）。
+- 在 `campus-net` 中嵌入该 1,482 字节公开中间证书（与 `sso.bjtu.edu.cn` 及 DigiCert AIA 逐字节一致），仅当 `*.bjtu.edu.cn` 服务端未下发任何中间证书且触发 `UnknownIssuer` 时作为非信任中间提示参与链校验，仍严格校验完整证书链至 `DigiCert Global Root G2` 根证书与主机名；ALPN 保持 `http/1.1`。
+- 77 项工作区测试（`campus-net` 新增域匹配单测共 29 项）、`--no-default-features` 编译、`sqlcipher` 7 项测试、Clippy 与格式检查全部通过；实网直连 `mis.bjtu.edu.cn` + `sso.bjtu.edu.cn` 登录握手与 `calendar now --refresh` 恢复正常。
+- 发布静态 musl 二进制与 Linux DEB / RPM / `tar.gz`、macOS Universal / `arm64` / `x64`、Windows x64 ZIP，并下载 CI Windows 包通过 Wine 复测。
 
 ## 0.1.9 物理在线与本地打包
 

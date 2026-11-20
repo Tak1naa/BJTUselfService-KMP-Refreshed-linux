@@ -1,7 +1,7 @@
 { lib, rustPlatform }:
 rustPlatform.buildRustPackage {
   pname = "campus-bjtu";
-  version = "0.1.9";
+  version = "0.1.10";
   src = lib.cleanSourceWith {
     src = ../.;
     filter = path: type: !(builtins.elem (baseNameOf path) [ "target" "artifacts" "build" ".gradle" ]);

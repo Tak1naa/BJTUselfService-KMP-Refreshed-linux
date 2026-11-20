@@ -1,6 +1,6 @@
 # BJTUselfService 实时工作记忆
 
-> **Rust 终端客户端（2026-11-20，进行中）** 位于 `feat/linux-rust-cli` 分支的 `linux/`（交大自由行 CLI，`0.1.9`）：支持 Linux / macOS / Windows 离线查询、同步、物理在线作业与全屏 TUI。本地已构建 Linux DEB/RPM 与静态 musl 二进制，macOS Universal 构建由 GitHub Actions `macos-latest` 验证。证据与产物见 [linux/docs/STATUS.md](linux/docs/STATUS.md)。
+> **Rust 终端客户端（2026-11-20，已发版）** 位于 [`linux/`](linux/README.md)（交大自由行 CLI，`0.1.10`）：支持 Linux / macOS / Windows 离线查询、同步、物理在线作业与全屏 TUI；已修复 `mis.bjtu.edu.cn` 漏发中间证书导致的 TLS 握手失败。证据与产物见 [linux/docs/STATUS.md](linux/docs/STATUS.md)。
 
 > **当前状态（2026-11-13）**
 > - **当前分支**：`fix/phyvlab-manual-captcha`，从 `origin/main` `b6e9f358`（PR #100）开独立工作树，跟踪 `origin/fix/phyvlab-manual-captcha`，已完成 iOS 物理在线验证码弹层修复与 `2.0.0-KMP` 发版准备，推送并准备 PR 合入 `main`。

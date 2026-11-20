@@ -1,5 +1,5 @@
 Name: campus-bjtu
-Version: 0.1.9
+Version: 0.1.10
 Release: 1%{?dist}
 Summary: 交大自由行 CLI (campus) - Offline-first BJTU campus CLI
 License: MIT
@@ -24,6 +24,9 @@ tar -xzf %{SOURCE0} -C %{buildroot}
 /usr/share/man/man1/campus.1*
 
 %changelog
+* Fri Nov 20 2026 BJTU campus contributors - 0.1.10-1
+- Supply GeoTrust G2 CN 2022 intermediate CA hint for *.bjtu.edu.cn when server omits intermediates.
+
 * Thu Nov 19 2026 BJTU campus contributors - 0.1.9-1
 - Add PhyVlab support (courses, assignments, details, attachments, draft upload, finalization, loopback captcha login, and TUI tab).
 

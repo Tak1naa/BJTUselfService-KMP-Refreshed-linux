@@ -22,8 +22,8 @@
 
 **三步开始使用：**
 1. **安装**：从 [Releases](https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/releases)（或 Actions 产物）下载 `.deb` / `.rpm` / `.tar.gz` / `.zip`（详见 [`linux/README.md`](linux/README.md)）：
-   - Debian / Ubuntu：`sudo apt install ./campus-bjtu_0.1.9_amd64.deb`
-   - Fedora / RHEL：`sudo dnf install ./campus-bjtu-0.1.9-1.*.x86_64.rpm`
+   - Debian / Ubuntu：`sudo apt install ./campus-bjtu_0.1.10_amd64.deb`
+   - Fedora / RHEL：`sudo dnf install ./campus-bjtu-0.1.10-1.*.x86_64.rpm`
    - 通用 Linux / macOS：解压 `.tar.gz` 后放入 `/usr/local/bin/campus`（macOS 首次可执行 `xattr -d com.apple.quarantine ./campus`）
    - Windows：解压 `.zip` 后在 PowerShell 运行 `.\campus.exe`
 2. **登录并同步**：`campus auth login --user 学号 --remember && campus sync all`（无钥匙串的 SSH 服务器先执行 `campus config set vault.backend file`）

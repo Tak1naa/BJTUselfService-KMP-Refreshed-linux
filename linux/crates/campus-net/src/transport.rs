@@ -1,6 +1,15 @@
 use campus_core::{Error, Result};
 use reqwest::{Client, Method, header};
 use reqwest_cookie_store::{CookieStore, CookieStoreMutex};
+use rustls::{
+    CertificateError, DigitallySignedStruct, Error as TlsError, RootCertStore, SignatureScheme,
+    client::{
+        WebPkiServerVerifier,
+        danger::{HandshakeSignatureValid, ServerCertVerified, ServerCertVerifier},
+    },
+    crypto::ring::default_provider,
+};
+use rustls_pki_types::{CertificateDer, ServerName, UnixTime};
 use serde::{Deserialize, Serialize};
 use std::{
     collections::{BTreeMap, HashMap},
@@ -9,6 +18,98 @@ use std::{
 };
 use tokio::sync::{Mutex, Semaphore};
 use url::Url;
+
+const GEOTRUST_G2_CN_2022_CA1_DER: &[u8] = include_bytes!("geotrust_g2_cn_2022_ca1.der");
+
+fn is_bjtu_domain(server_name: &ServerName<'_>) -> bool {
+    let ServerName::DnsName(dns) = server_name else {
+        return false;
+    };
+    let host = dns.as_ref().trim_end_matches('.').to_ascii_lowercase();
+    host == "bjtu.edu.cn" || host.ends_with(".bjtu.edu.cn")
+}
+
+#[derive(Debug)]
+struct BjtuIntermediateVerifier {
+    inner: Arc<WebPkiServerVerifier>,
+}
+
+impl BjtuIntermediateVerifier {
+    fn new() -> Result<Self> {
+        let mut roots = RootCertStore::empty();
+        roots.extend(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        let inner = WebPkiServerVerifier::builder_with_provider(
+            Arc::new(roots),
+            Arc::new(default_provider()),
+        )
+        .build()
+        .map_err(|_| Error::Network)?;
+        Ok(Self { inner })
+    }
+}
+
+impl ServerCertVerifier for BjtuIntermediateVerifier {
+    fn verify_server_cert(
+        &self,
+        end_entity: &CertificateDer<'_>,
+        intermediates: &[CertificateDer<'_>],
+        server_name: &ServerName<'_>,
+        ocsp_response: &[u8],
+        now: UnixTime,
+    ) -> std::result::Result<ServerCertVerified, TlsError> {
+        match self.inner.verify_server_cert(
+            end_entity,
+            intermediates,
+            server_name,
+            ocsp_response,
+            now,
+        ) {
+            Ok(verified) => Ok(verified),
+            Err(TlsError::InvalidCertificate(CertificateError::UnknownIssuer))
+                if intermediates.is_empty() && is_bjtu_domain(server_name) =>
+            {
+                let hint = [CertificateDer::from(GEOTRUST_G2_CN_2022_CA1_DER)];
+                self.inner
+                    .verify_server_cert(end_entity, &hint, server_name, ocsp_response, now)
+            }
+            Err(err) => Err(err),
+        }
+    }
+
+    fn verify_tls12_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, TlsError> {
+        self.inner.verify_tls12_signature(message, cert, dss)
+    }
+
+    fn verify_tls13_signature(
+        &self,
+        message: &[u8],
+        cert: &CertificateDer<'_>,
+        dss: &DigitallySignedStruct,
+    ) -> std::result::Result<HandshakeSignatureValid, TlsError> {
+        self.inner.verify_tls13_signature(message, cert, dss)
+    }
+
+    fn supported_verify_schemes(&self) -> Vec<SignatureScheme> {
+        self.inner.supported_verify_schemes()
+    }
+}
+
+fn bjtu_tls_config() -> Result<rustls::ClientConfig> {
+    let verifier = Arc::new(BjtuIntermediateVerifier::new()?);
+    let mut cfg = rustls::ClientConfig::builder_with_provider(Arc::new(default_provider()))
+        .with_safe_default_protocol_versions()
+        .map_err(|_| Error::Network)?
+        .dangerous()
+        .with_custom_certificate_verifier(verifier)
+        .with_no_client_auth();
+    cfg.alpn_protocols = vec![b"http/1.1".to_vec()];
+    Ok(cfg)
+}
 
 fn default_phyvlab() -> Url {
     "https://phyvlab.bjtu.edu.cn/".parse().unwrap()
@@ -239,8 +340,10 @@ impl SchoolTransport {
         legacy_scope: Option<LegacyScope>,
     ) -> Result<Self> {
         let jar = Arc::new(CookieStoreMutex::new(store));
+        let tls = bjtu_tls_config()?;
         let builder = || {
             let client = Client::builder()
+                .use_preconfigured_tls(tls.clone())
                 .user_agent(USER_AGENT)
                 .redirect(reqwest::redirect::Policy::none())
                 .retry(reqwest::retry::never())
@@ -685,5 +788,19 @@ mod download_tests {
             Url::parse("http://127.0.0.2/ve/download.shtml?userId=1&id=2&p=synthetic&g=synthetic")
                 .unwrap();
         assert!(!transport.legacy_download_allowed(&alien));
+    }
+
+    #[test]
+    fn bjtu_domain_matcher_only_matches_bjtu_hosts() {
+        let ok1 = ServerName::try_from("mis.bjtu.edu.cn").unwrap();
+        let ok2 = ServerName::try_from("MIS.BJTU.EDU.CN.").unwrap();
+        let ok3 = ServerName::try_from("bjtu.edu.cn").unwrap();
+        let bad1 = ServerName::try_from("notbjtu.edu.cn").unwrap();
+        let bad2 = ServerName::try_from("evil.example").unwrap();
+        assert!(is_bjtu_domain(&ok1));
+        assert!(is_bjtu_domain(&ok2));
+        assert!(is_bjtu_domain(&ok3));
+        assert!(!is_bjtu_domain(&bad1));
+        assert!(!is_bjtu_domain(&bad2));
     }
 }
