@@ -265,6 +265,47 @@ fn login(
     }
 }
 
+pub(crate) fn interactive_tui_login(
+    args: &Args,
+    db: &Database,
+    paths: &Paths,
+    config: &Config,
+    mis_user: &str,
+) -> Result<bool> {
+    use std::io::Write;
+    let account = db.account(mis_user)?;
+    let default_user = db
+        .pref(&format!("phyvlab:{account}"), "username")
+        .ok()
+        .flatten()
+        .unwrap_or_else(|| mis_user.to_owned());
+    eprintln!("物理在线登录（需校园网或学校 VPN；如遇验证码会自动打开浏览器点选）");
+    eprint!("物理在线账号（直接 Enter 使用 {default_user}，输入账号将重输密码，输入 q 取消）: ");
+    io::stderr().flush().map_err(campus_db::storage)?;
+    let mut input = String::new();
+    io::stdin()
+        .read_line(&mut input)
+        .map_err(campus_db::storage)?;
+    let trimmed = input.trim();
+    if matches!(trimmed, "q" | "Q") {
+        return Ok(false);
+    }
+    let explicit = (!trimmed.is_empty()).then_some(trimmed);
+    login(
+        args,
+        db,
+        paths,
+        config,
+        Some(mis_user),
+        explicit,
+        false,
+        false,
+        true,
+        false,
+    )?;
+    Ok(true)
+}
+
 fn read_courses(
     args: &Args,
     db: &mut Database,

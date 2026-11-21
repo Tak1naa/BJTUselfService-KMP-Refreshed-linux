@@ -827,15 +827,40 @@ impl App {
                 }
                 KeyCode::Char('l') if !args.offline && self.worker.is_none() => {
                     ratatui::restore();
-                    let logged = crate::interactive_login_wizard(args, db, paths, config);
-                    *terminal = ratatui::try_init()
-                        .inspect_err(|_| ratatui::restore())
-                        .map_err(storage)?;
-                    if let Ok(Some(new_user)) = logged {
-                        *account = Some(db.account(&new_user)?);
-                        *user = Some(new_user);
-                        self.load(db, *account)?;
-                        self.sync_all(paths, config, user.as_deref());
+                    if self.page().dataset == "phyvlab"
+                        && let Some(mis_user) = user.as_deref()
+                    {
+                        let logged = crate::phyvlab::interactive_tui_login(
+                            args, db, paths, config, mis_user,
+                        );
+                        *terminal = ratatui::try_init()
+                            .inspect_err(|_| ratatui::restore())
+                            .map_err(storage)?;
+                        match logged {
+                            Ok(true) => {
+                                self.refresh(args, paths, config, user.as_deref());
+                            }
+                            Ok(false) => {
+                                self.status = "已取消物理在线登录。".into();
+                            }
+                            Err(Error::ActionRequired("phyvlab_profile_incomplete")) => {
+                                self.status = "请先在浏览器打开 https://phyvlab.bjtu.edu.cn/user/edit.php 完善个人资料。".into();
+                            }
+                            Err(err) => {
+                                self.status = crate::output::clean(&err.to_string());
+                            }
+                        }
+                    } else {
+                        let logged = crate::interactive_login_wizard(args, db, paths, config);
+                        *terminal = ratatui::try_init()
+                            .inspect_err(|_| ratatui::restore())
+                            .map_err(storage)?;
+                        if let Ok(Some(new_user)) = logged {
+                            *account = Some(db.account(&new_user)?);
+                            *user = Some(new_user);
+                            self.load(db, *account)?;
+                            self.sync_all(paths, config, user.as_deref());
+                        }
                     }
                     None
                 }
@@ -1425,7 +1450,7 @@ impl App {
         } else if page.dataset == "courseware" && !offline {
             "↑↓ 选文件   / 筛选   d 下载至 ./courseware   r 同步   q 退出".into()
         } else if page.dataset == "phyvlab" && !offline {
-            "↑↓ 选行   Enter 详情   d 下附件(./phyvlab)   / 筛选   r 同步   q 退出".into()
+            "↑↓ 选行   Enter 详情   l 登录   d 下附件(./phyvlab)   / 筛选   r 同步   q 退出".into()
         } else if offline {
             "←→/Tab 切页   ↑↓ 选行   Enter 详情   / 筛选   q 退出".into()
         } else {
