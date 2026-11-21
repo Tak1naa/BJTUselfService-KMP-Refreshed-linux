@@ -1346,9 +1346,8 @@ fn maybe_create_windows_shortcut(
 
         let exe = std::env::current_exe().map_err(campus_db::storage)?;
         let exe_icon = exe.with_file_name("campus.ico");
-        let icon_path = if exe_icon.exists() {
-            exe_icon
-        } else if std::fs::write(&exe_icon, WINDOWS_ICON_ICO).is_ok() {
+        let icon_path = if exe_icon.exists() || std::fs::write(&exe_icon, WINDOWS_ICON_ICO).is_ok()
+        {
             exe_icon
         } else {
             campus_db::paths::private_dir(&paths.data)?;

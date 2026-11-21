@@ -8,7 +8,7 @@
 - 新增首次启动监测与引导：双击/运行 `campus` 且未登录时进入首次登录向导，TUI 亦支持按 `l` 登录或检测其他终端登录成功，首次登录完成后自动同步所有常用页面并刷新界面；`campus auth login` 首次登录无缓存时同样自动完成首轮全量同步。
 - 新增 Windows 登录成功后可选自动创建桌面快捷方式（`交大自由行 CLI.lnk`，含透明圆角多尺寸 `campus.ico` 图标，支持 `--shortcut` / `--no-shortcut`，图标仅在 `#[cfg(windows)]` 嵌入，不增加 Linux 静态二进制体积）。
 - 更新面向普通用户的 To-C 首页 [README.md](../../README.md)、[linux/README.md](../README.md) 与 [CONTRIBUTING.md](../../CONTRIBUTING.md)，附项目截图与常见 FAQ。
-- 83 项工作区测试（含 GBK 查表与作业下载/提交 mock 测试）、`sqlcipher` 7 项测试、`--no-default-features` 编译、Clippy 与格式检查全部通过；静态 musl 二进制体积 `10,446,112` 字节（9.96 MiB），100 次预热 `--version` p95 `2.77 ms`、离线查询 p95 `8.71–15.63 ms`。
+- 83 项工作区测试（含 GBK 查表与作业下载/提交 mock 测试）、`sqlcipher` 7 项测试、`--no-default-features` 编译、Clippy 与格式检查全部通过；`[profile.release]` 使用 `opt-level = "s"`，静态 musl 二进制体积 `9,409,184` 字节（8.97 MiB），100 次预热 `--version` p95 `2.69 ms`、离线查询 p95 `8.98–15.96 ms`。
 
 ## 0.1.11 作业列表排序与逾期未提交灰显
 
