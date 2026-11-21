@@ -10,11 +10,11 @@
 
 ---
 
-## 三分钟上手（普通用户安装教程）
+## 普通用户安装教程
 
 前往 **[Releases 下载页面](https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/releases)** 下载对应系统的安装包：
 
-### 1. Windows 10 / 11（免安装绿色压缩包）
+### 1. Windows 10 / 11
 1. 下载 **`campus-bjtu-1.0.0-windows-x64.zip`** 并解压到固定文件夹（例如 `D:\Tools\campus`）。
 2. **直接双击 `campus.exe`**（若弹出「Windows 已保护你的电脑」，点击 **「更多信息」 -> 「仍要运行」**，或右键运行附带的 `campus.ps1` 自动执行 `Unblock-File` 解除拦截并启动）。
 3. 首次打开会自动弹出登录向导：输入学号和 MIS 密码（密码输入时不显示字符属正常保护） -> 选择 **`Y`** 自动在桌面创建「交大自由行 CLI」快捷方式 -> **自动同步所有页面数据**并进入全屏工作台。以后双击桌面快捷方式即可秒开。
