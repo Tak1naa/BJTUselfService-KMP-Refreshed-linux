@@ -1,4 +1,4 @@
-# 交大自由行 CLI (`campus`)
+# BJTUselfService-Lite · 交大自由行轻量版 (`campus`)
 
 <p align="center">
   <img src="docs/images/cli-icon.png" alt="交大自由行 CLI 图标" width="96" />
@@ -12,7 +12,7 @@
 
 ## 普通用户安装教程
 
-前往 **[Releases 下载页面](https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/releases)** 下载对应系统的安装包：
+前往 **[Releases 下载页面](https://github.com/Tak1naa/BJTUselfService-Lite/releases)** 下载对应系统的安装包：
 
 ### 1. Windows 10 / 11
 1. 下载 **`campus-bjtu-1.0.0-windows-x64.zip`** 并解压到固定文件夹（例如 `D:\Tools\campus`）。
@@ -67,7 +67,7 @@
 | `/` | 当前页面关键词实时过滤（`Enter` 锁定，`Esc` 清空） |
 | `q` / `Ctrl+C` | 退出工作台 |
 
-更多命令、TUI 快捷键与常见问题见 **[CLI 完整使用手册 (`linux/README.md`)](linux/README.md)**；参与开发、运行测试与提交 PR 请看 **[贡献指南 (`CONTRIBUTING.md`)](CONTRIBUTING.md)**，公开维护计划与已知问题跟踪见 **[GitHub Issues](https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/issues)**。
+更多命令、TUI 快捷键与常见问题见 **[CLI 完整使用手册 (`linux/README.md`)](linux/README.md)**；参与开发、运行测试与提交 PR 请看 **[贡献指南 (`CONTRIBUTING.md`)](CONTRIBUTING.md)**，公开维护计划与已知问题跟踪见 **[GitHub Issues](https://github.com/Tak1naa/BJTUselfService-Lite/issues)**。
 
 ---
 

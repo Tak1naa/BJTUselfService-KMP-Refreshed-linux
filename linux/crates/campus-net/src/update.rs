@@ -284,7 +284,7 @@ mod tests {
                 "draft": false,
                 "prerelease": false,
                 "published_at": "2026-11-22T01:00:00Z",
-                "html_url": "https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/releases/tag/cli-v0.1.13",
+                "html_url": "https://github.com/Tak1naa/BJTUselfService-Lite/releases/tag/cli-v0.1.13",
                 "assets": [
                     {
                         "name": "campus-bjtu-0.1.13-linux-x86_64.tar.gz",

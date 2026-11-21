@@ -4,7 +4,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
 pub const GITHUB_RELEASES_API: &str =
-    "https://api.github.com/repos/Tak1naa/BJTUselfService-KMP-Refreshed-linux/releases?per_page=10";
+    "https://api.github.com/repos/Tak1naa/BJTUselfService-Lite/releases?per_page=10";
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct ReleaseAsset {
@@ -68,7 +68,7 @@ pub fn latest_cli_release(releases_json: &str) -> Result<Option<ReleaseInfo>> {
         let html_url = entry["html_url"]
             .as_str()
             .filter(|s| s.starts_with("https://"))
-            .unwrap_or("https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/releases")
+            .unwrap_or("https://github.com/Tak1naa/BJTUselfService-Lite/releases")
             .to_owned();
         let published_at = entry["published_at"].as_str().map(str::to_owned);
         let assets = entry["assets"]

@@ -19,7 +19,7 @@
 
 ### 下载安装包
 
-前往仓库的 **[GitHub Releases](https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/releases)**（或开发分支最新构建 **[Actions → Linux Rust CLI → Artifacts](https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/actions/workflows/linux-rust.yml)**）下载对应系统压缩包/安装包：
+前往仓库的 **[GitHub Releases](https://github.com/Tak1naa/BJTUselfService-Lite/releases)**（或开发分支最新构建 **[Actions → Linux Rust CLI → Artifacts](https://github.com/Tak1naa/BJTUselfService-Lite/actions/workflows/linux-rust.yml)**）下载对应系统压缩包/安装包：
 
 ### 1. Linux（Ubuntu / Debian / Fedora / Arch / 通用发行版）
 
