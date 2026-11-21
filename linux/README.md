@@ -2,14 +2,13 @@
 
 **不到 10 MiB 的单二进制跨平台交大校园客户端** —— 用 Rust + SQLite 从底层重构，告别 JVM 与重型桌面壳，打开即秒开本地缓存、全屏工作台查课算分、终端一键下载课件与提交物理在线实验。
 
-> 寻找图形端（Android / iOS / macOS / Windows 桌面 App）？请看上级目录 [`multiplatform/`](../multiplatform) 与 [仓库主页 README](../README.md)。  
-> 开发者编译、Crate 模块架构、Kotlin 对照与基准测试请看 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 与 [docs/STATUS.md](docs/STATUS.md)。
+> 仓库首页与三分钟快速上手请看 **[README.md](../README.md)**；开发者编译、Crate 模块架构与基准测试请看 [docs/DEVELOPMENT.md](docs/DEVELOPMENT.md) 与 [docs/STATUS.md](docs/STATUS.md)。
 
 ---
 
 ## 核心亮点
 
-- **极小体积**：静态编译二进制仅 **9.75 MiB**（`10,225,056` 字节，`.deb` 约 `3.27 MiB`、`.rpm` 约 `3.51 MiB`），零 JVM、零 Electron、零外置数据库依赖，一个文件拷走就能跑。
+- **极小体积**：静态编译二进制小于 **10 MiB**（`0.1.12` musl 二进制约 `8.97 MiB`，`.deb` 约 `3.35 MiB`、`.rpm` 约 `3.35 MiB`），零 JVM、零 Electron、零外置数据库依赖，一个文件拷走就能跑。
 - **低内存与毫秒级响应**：离线查询与 TUI 启动时**不初始化 Tokio 异步运行时、TLS 网络栈与系统钥匙串**，直接同步读取本地 SQLite；100 次预热实测 `--version` p95 `2.69 ms`，课表/成绩/考试/一卡通离线读取 p95 `8.70–15.05 ms`；大课件采用 4 MiB 分片断点续传，凭据内存随用随擦除（`zeroize`）。
 - **全屏工作台 (TUI)**：原生 `ratatui` 终端界面内置 **10 个功能页**（课表列表/周历网格、作业、成绩与 GPA、考试、五色教室周占用、一卡通、学年历、课件、同步状态、物理在线），启动秒开缓存、按 `r` 后台同步不卡界面。
 - **五层架构重构**：将原客户端拆解为 `campus-core`（纯规则与解析）→ `campus-db`（SQLite + 加密钥匙串）& `campus-net`（`rustls` + 本地 SM2 + 回环验证码 + 流式下载）→ `campus-sync`（重登去重与隔离编排）→ `campus-cli`（CLI / TUI / 定时任务），离线与联网职责完全解耦。
@@ -117,7 +116,7 @@ campus
 | 快捷键 | 页面 | 你能做什么 |
 | --- | --- | --- |
 | `1` | 课表 | 默认列表；按 `v` 切换**周课表网格**，按 `+` / `-` 切教学周，按 `Enter` 看教室与老师详情 |
-| `2` | 作业 | 未提交置顶并按截止时间排序；绿=已提交、红=未提交、灰=逾期未提交；按 `Enter` 看详情，按 `d` 下载老师附件至 `./homework/` |
+| `2` | 作业 | 未提交置顶并按截止时间排序；绿=已提交、红=未提交、灰=逾期未提交；按 `Enter` 看详情，按 `d` 下载老师附件至 `./homework/`，按 `u` 交互式上传提交作业 |
 | `3` | 成绩 | 查看各科成绩与学分，底栏实时显示当前筛选范围的**百分制均分与 4.0 GPA** |
 | `4` | 考试 | 查看考试时间、地点与状态 |
 | `5` | 教室 | 按 `b` / `B` 切换教学楼，`+` / `-` 选周次，按 `r` 刷新五色周占用网格 |
@@ -264,5 +263,5 @@ campus grades --offline --json                    # 输出稳定 schema: 1 JSON 
 
 ## 六、更多文档
 
-- 开发者架构细节、源码编译、Kotlin 对照测试与接口契约：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
+- 开发者架构细节、源码编译与接口契约：[docs/DEVELOPMENT.md](docs/DEVELOPMENT.md)
 - 各版本真机测试、包体指标与当前状态记录：[docs/STATUS.md](docs/STATUS.md)

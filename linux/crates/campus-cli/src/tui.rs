@@ -776,6 +776,14 @@ impl App {
                     self.download(args, paths, config, user.as_deref());
                     None
                 }
+                KeyCode::Char('u')
+                    if self.page().dataset == "homework"
+                        && !args.offline
+                        && self.worker.is_none() =>
+                {
+                    self.upload_homework(terminal, db, paths, config, user.as_deref(), *account)?;
+                    None
+                }
                 KeyCode::Char('l') if !args.offline && self.worker.is_none() => {
                     ratatui::restore();
                     let logged = crate::interactive_login_wizard(args, db, paths, config);
@@ -940,6 +948,67 @@ impl App {
             })();
             let _ = tx.send(result);
         });
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn upload_homework(
+        &mut self,
+        terminal: &mut ratatui::DefaultTerminal,
+        db: &mut Database,
+        paths: &Paths,
+        config: &Config,
+        user: Option<&str>,
+        account: Option<i64>,
+    ) -> Result<()> {
+        let Some((user, id, title)) = user
+            .zip(
+                self.selection
+                    .selected()
+                    .and_then(|i| self.visible.get(i).copied())
+                    .and_then(|row_idx| {
+                        self.download_ids
+                            .get(row_idx)
+                            .and_then(Option::as_deref)
+                            .map(|id| {
+                                let title = self
+                                    .rows
+                                    .get(row_idx)
+                                    .and_then(|r| r.first())
+                                    .map(String::as_str)
+                                    .unwrap_or(id);
+                                (id.to_owned(), title.to_owned())
+                            })
+                    }),
+            )
+            .map(|(u, (id, title))| (u, id, title))
+        else {
+            self.status = "请先登录并选中一项作业后再按 u 上传。".into();
+            return Ok(());
+        };
+
+        ratatui::restore();
+        let outcome = prompt_homework_upload(db, paths, config, user, &id, &title);
+        *terminal = ratatui::try_init()
+            .inspect_err(|_| ratatui::restore())
+            .map_err(storage)?;
+
+        match outcome {
+            Ok(Some(count)) => {
+                let _ = crate::transfer::refresh_homework_detail(db, paths, config, user, &id);
+                self.load(db, account)?;
+                self.status = format!("已上传提交「{title}」（{count} 个文件）。");
+            }
+            Ok(None) | Err(Error::Rejected(_)) => {
+                self.status = "已取消作业上传。".into();
+            }
+            Err(Error::SessionExpired) => {
+                self.status = "会话已过期，请按 l 重新登录。".into();
+            }
+            Err(err) => {
+                self.status = crate::output::clean(&err.to_string());
+            }
+        }
+        Ok(())
     }
 
     fn sync_all(&mut self, paths: &Paths, config: &Config, user: Option<&str>) {
@@ -1272,7 +1341,7 @@ impl App {
             }
             .into()
         } else if page.dataset == "homework" && !offline {
-            "↑↓ 选行   Enter 详情   d 下附件(./homework)   / 筛选   r 同步   q 退出".into()
+            "↑↓ 选行   Enter 详情   d 下附件(./homework)   u 上传   / 筛选   r 同步   q 退出".into()
         } else if page.dataset == "courseware" && !offline {
             "↑↓ 选文件   / 筛选   d 下载至 ./courseware   r 同步   q 退出".into()
         } else if page.dataset == "phyvlab" && !offline {
@@ -1437,5 +1506,89 @@ fn summarize(result: Result<Vec<Value>>) -> String {
         }
         Err(Error::SessionExpired) => "会话已过期，请运行 campus auth login。".into(),
         Err(e) => crate::output::clean(&e.to_string()),
+    }
+}
+
+fn unquote_tui_path(raw: &str) -> String {
+    let trimmed = raw.trim();
+    if trimmed.len() >= 2
+        && ((trimmed.starts_with('"') && trimmed.ends_with('"'))
+            || (trimmed.starts_with('\'') && trimmed.ends_with('\'')))
+    {
+        trimmed[1..trimmed.len() - 1].trim().to_owned()
+    } else {
+        trimmed.to_owned()
+    }
+}
+
+fn prompt_homework_upload(
+    db: &mut Database,
+    paths: &Paths,
+    config: &Config,
+    user: &str,
+    id: &str,
+    title: &str,
+) -> Result<Option<usize>> {
+    use std::io::Write;
+
+    eprintln!("作业上传提交：{title}（ID: {id}）");
+    eprintln!("说明：学校课程平台规则为默认覆盖上次提交；支持直接拖入文件到终端。");
+
+    let mut files = Vec::new();
+    loop {
+        if files.is_empty() {
+            eprint!("拖入或输入第 1 个文件路径（直接 Enter 取消）: ");
+        } else {
+            eprint!(
+                "继续添加第 {} 个文件（可选，直接 Enter 进入下一步）: ",
+                files.len() + 1
+            );
+        }
+        io::stderr().flush().map_err(storage)?;
+        let mut line = String::new();
+        io::stdin().read_line(&mut line).map_err(storage)?;
+        let raw_path = unquote_tui_path(&line);
+        if raw_path.is_empty() {
+            if files.is_empty() {
+                return Ok(None);
+            }
+            break;
+        }
+        let path = std::path::PathBuf::from(&raw_path);
+        match std::fs::metadata(&path) {
+            Ok(meta) if meta.is_file() => {
+                if meta.len() > 100 * 1024 * 1024 {
+                    eprintln!("文件超过 100 MiB 上限：{raw_path}");
+                } else {
+                    files.push(path);
+                }
+            }
+            Ok(_) => eprintln!("目标不是普通文件：{raw_path}"),
+            Err(_) => eprintln!("未找到文件：{raw_path}"),
+        }
+    }
+
+    eprint!("作答文本 / 提交说明（可选，直接 Enter 跳过）: ");
+    io::stderr().flush().map_err(storage)?;
+    let mut content = String::new();
+    io::stdin().read_line(&mut content).map_err(storage)?;
+    let content = content.trim().to_owned();
+
+    crate::transfer::homework_submit(db, paths, config, user, id, &files, &content, false)?;
+    Ok(Some(files.len()))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::unquote_tui_path;
+
+    #[test]
+    fn strips_matching_quotes_around_dragged_paths() {
+        assert_eq!(
+            unquote_tui_path("  \"C:\\tmp\\a b.pdf\" \n"),
+            "C:\\tmp\\a b.pdf"
+        );
+        assert_eq!(unquote_tui_path("'/tmp/报告 1.pdf'"), "/tmp/报告 1.pdf");
+        assert_eq!(unquote_tui_path("relative/file.txt"), "relative/file.txt");
     }
 }

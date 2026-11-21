@@ -545,6 +545,21 @@ pub(crate) fn homework_download(
 }
 
 #[cfg(not(feature = "media"))]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn homework_submit(
+    _db: &mut Database,
+    _paths: &Paths,
+    _config: &Config,
+    _user: &str,
+    _id: &str,
+    _files: &[std::path::PathBuf],
+    _content: &str,
+    _skip_prompt: bool,
+) -> Result<serde_json::Value> {
+    Err(Error::Usage("this build has media disabled".into()))
+}
+
+#[cfg(not(feature = "media"))]
 pub(crate) fn courseware_download(
     _db: &Database,
     _paths: &Paths,
