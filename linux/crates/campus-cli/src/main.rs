@@ -128,6 +128,7 @@ fn log_outcome(args: &Args, code: u8) -> Result<()> {
         Command::Changes { .. } => "changes",
         Command::Courseware { .. } => "courseware",
         Command::Homework { .. } => "homework",
+        Command::Mail { .. } => "mail",
         Command::Phyvlab { .. } => "phyvlab",
         Command::Config { .. } => "config",
         Command::Cache { .. } => "cache",
@@ -514,6 +515,13 @@ fn run(args: &Args) -> Result<u8> {
                 user.as_deref().ok_or(Error::SessionExpired)?,
             )
         }
+        Command::Mail { action, .. } if action == "download" => transfer::run(
+            args,
+            &mut db,
+            &paths,
+            &config,
+            user.as_deref().ok_or(Error::SessionExpired)?,
+        ),
         Command::Phyvlab { action } => phyvlab::run(
             args,
             action.as_ref(),
@@ -547,7 +555,8 @@ fn validate_datasets(ds: &[String]) -> Result<()> {
             .any(|s| !campus_net::fetch::DATASETS.contains(&s.as_str()))
     {
         return Err(Error::Usage(
-            "datasets: courses,grades,exams,card,calendar,rooms,homework,courseware,phyvlab".into(),
+            "datasets: courses,grades,exams,card,mail,calendar,rooms,homework,courseware,phyvlab"
+                .into(),
         ));
     }
     Ok(())
@@ -632,6 +641,7 @@ fn read_command(
         Command::Rooms { .. } => "rooms",
         Command::Courseware { .. } => "courseware",
         Command::Homework { .. } => "homework",
+        Command::Mail { .. } => "mail",
         _ => return Err(Error::Usage("invalid command".into())),
     };
     let account = if dataset == "calendar" {
@@ -1051,6 +1061,30 @@ fn read_command(
             }
             _ => return Err(Error::Usage("homework list|show|download|submit".into())),
         },
+        Command::Mail { action, id, .. } => match action.as_str() {
+            "list" => json!(rows),
+            "show" => {
+                let id = id
+                    .as_deref()
+                    .ok_or_else(|| Error::Usage("mail show ID".into()))?;
+                if !args.offline && args.refresh && cfg!(feature = "media") {
+                    transfer::refresh_mail_detail(
+                        db,
+                        paths,
+                        config,
+                        user.ok_or(Error::SessionExpired)?,
+                        id,
+                    )?
+                } else {
+                    rows.into_iter()
+                        .find(|r| {
+                            r.get("id").and_then(campus_core::parse::scalar).as_deref() == Some(id)
+                        })
+                        .ok_or(Error::NoData)?
+                }
+            }
+            _ => return Err(Error::Usage("mail list|show|download".into())),
+        },
         _ => return Err(Error::Usage("invalid read command".into())),
     };
     output::render(
@@ -1250,7 +1284,7 @@ pub(crate) const ALL_TUI_DATASETS: &[&str] = &[
     "grades",
     "grade_types",
     "exams",
-    "card",
+    "mail",
     "calendar",
     "courseware",
 ];

@@ -144,7 +144,7 @@ python3 scripts/package-windows.py target/x86_64-pc-windows-gnullvm/release/camp
 
 ---
 
-## 5. 测试、Kotlin 对照与基准门禁
+## 5. 测试与基准门禁
 
 ```sh
 cd linux
@@ -155,14 +155,7 @@ cargo test --locked --workspace
 cargo check --locked -p campus-cli --no-default-features
 cargo test --locked -p campus-db --features sqlcipher
 
-# 2. Kotlin <-> Rust 解析与 SM2 密文逐字节对照
-python3 scripts/prepare-kotlin-oracle.py
-bash ../multiplatform/gradlew -p tests/kotlin-oracle --no-daemon -q run \
-  --args="$PWD/tests/fixtures" > artifacts/kotlin.json
-cargo run --locked -q -p campus-net --example oracle_vectors -- tests/fixtures > artifacts/rust.json
-python3 scripts/compare-oracle.py artifacts/kotlin.json artifacts/rust.json
-
-# 3. 二进制体积 (<= 10 MiB) 与离线延迟门禁
+# 2. 二进制体积 (<= 10 MiB) 与离线延迟门禁
 python3 scripts/benchmark.py target/x86_64-unknown-linux-musl/release/campus
 ```
 

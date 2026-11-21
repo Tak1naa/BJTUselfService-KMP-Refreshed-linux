@@ -1,14 +1,18 @@
 # Linux Rust 本地验证记录
 
-日期：2026-11-20。分支：`main`（由 `feat/linux-rust-cli` 合入），基于实际 BJTU 仓库。Kotlin Multiplatform 源码保留，可继续使用。
+日期：2026-11-22。分支：`main`，已将上游 Kotlin Multiplatform 源码归档至只读 Git 标签 `archive/kmp-upstream`，主线专精 Rust 跨平台 CLI/TUI（`1.0.0` 首个正式版）。
 
-## 0.1.12 作业附件下载与提交、首次登录向导及 Windows 桌面快捷方式
+## 1.0.0 首个正式版：邮箱代收、作业附件提交与下载、自更新及交互完善
 
-- 新增作业详情刷新（`campus homework show <ID> --refresh`）、老师与已交附件下载（`campus homework download <ID> [--submitted] -o ./homework` 及 TUI `d` 键）以及作业上传提交（`campus homework submit <ID> --file ... [--content ...] [--yes]`），按 KMP 协议对齐双层正文编码、精简 `23 KiB` GBK 查表解码已交附件列表与严格上传/提交回执校验，仅在显式用户传输/提交作用域开放 `HomeworkAction`。
-- 新增首次启动监测与引导：双击/运行 `campus` 且未登录时进入首次登录向导，TUI 亦支持按 `l` 登录或检测其他终端登录成功，首次登录完成后自动同步所有常用页面并刷新界面；`campus auth login` 首次登录无缓存时同样自动完成首轮全量同步。
-- 新增 Windows 登录成功后可选自动创建桌面快捷方式（`交大自由行 CLI.lnk`，含透明圆角多尺寸 `campus.ico` 图标，支持 `--shortcut` / `--no-shortcut`，图标仅在 `#[cfg(windows)]` 嵌入，不增加 Linux 静态二进制体积）。
-- 更新面向普通用户的 To-C 首页 [README.md](../../README.md)、[linux/README.md](../README.md) 与 [CONTRIBUTING.md](../../CONTRIBUTING.md)，附项目截图与常见 FAQ。
-- 83 项工作区测试（含 GBK 查表与作业下载/提交 mock 测试）、`sqlcipher` 7 项测试、`--no-default-features` 编译、Clippy 与格式检查全部通过；`[profile.release]` 使用 `opt-level = "s"`，静态 musl 二进制体积 `9,409,184` 字节（8.97 MiB），100 次预热 `--version` p95 `2.69 ms`、离线查询 p95 `8.98–15.96 ms`。
+- 仓库结构整理与版本毕业：保留 MIT 上游版权与 [README.md](../../README.md) 致谢，将原 Kotlin Multiplatform 代码及历史对照脚本冻结保存在 `archive/kmp-upstream` 标签并从 `main` 移除，版本号由 `0.1.x` 正式毕业至 `1.0.0`。
+
+- 新增校内邮箱 Coremail 代收（`campus mail`、`campus mail show <ID> [--refresh]`、`campus mail download <ID>`）并替代 TUI 第 6 页（`邮箱`），支持未读/已读状态标识、收件人/正文展示与 `/coremail/mbox-data` 附件安全下载。
+- 作业、课件与邮件附件的 CLI（未传 `-o` 时）和 TUI `d` 键统一切换为默认保存到各系统下载文件夹（`dirs::download_dir()`），并以 `unique_dest` 自动避让磁盘同名文件。
+- 新增作业详情刷新（`campus homework show <ID> --refresh`）、老师与已交附件下载（`campus homework download <ID> [--submitted]` 及 TUI `d` 键）以及作业上传提交（`campus homework submit <ID> --file ... [--content ...] [--yes]` 及 TUI `u` 键交互拖入多文件覆盖提交），按 KMP 协议对齐双层正文编码、精简 `23 KiB` GBK 查表解码已交附件列表与严格上传/提交回执校验，仅在显式用户传输/提交作用域开放 `HomeworkAction`。
+- 新增首次启动监测与引导：双击/运行 `campus` 且未登录时进入首次登录向导；TUI 支持按 `l` 登录（在「物理在线」页按 `l` 直连物理在线独立登录与阿里云浏览器点选验证码，其它页登录 MIS 并自动全量同步）；`campus auth login` 首次登录同样自动完成首轮全量同步。
+- 新增从 GitHub Releases 自动检查与安全拉取更新：`campus update [--check] [--yes]` 与 TUI 24 小时后台检查（顶栏提示、按 `U` 升级），严格限制 GitHub 官方 HTTPS 域名与逐跳重定向校验，下载前强制核对 `SHA256SUMS.txt`，区分便携原子替换（Linux/macOS/Windows `campus.exe.old` 延迟清理）与系统包（`.deb`/`.rpm`）缓存升级提示，支持 `campus config set update.check off`。
+- 错误提示去技术化与分发信任改善：统一 CLI 表格模式与 TUI 状态栏中文友好错误映射 `friendly_error`（保留 `--json` 契约）；Windows 包装加 `Unblock-File` 辅助脚本 `campus.ps1` 并预留 CI Authenticode / Apple Developer ID 条件签名钩子；macOS 默认启用 ad-hoc `codesign`，GitHub Release 启用 SLSA 构建溯源证明（`actions/attest-build-provenance`）。
+- 新增 Windows 登录成功后可选自动创建桌面快捷方式（`交大自由行 CLI.lnk`，含透明圆角多尺寸 `campus.ico` 图标，支持 `--shortcut` / `--no-shortcut`，图标仅在 `#[cfg(windows)]` 嵌入，不增加 Linux 静态二进制体积），在 `main.rs` 开头加入终端点阵注释彩蛋，并更新 To-C 首页 [README.md](../../README.md)、[linux/README.md](../README.md) 与 [CONTRIBUTING.md](../../CONTRIBUTING.md)（零 emoji）。
 
 ## 0.1.11 作业列表排序与逾期未提交灰显
 

@@ -9,7 +9,14 @@ use campus_db::{Database, config::Config, paths::Paths};
 use serde_json::json;
 
 #[cfg(feature = "media")]
-pub fn run(
+pub(crate) fn download_target(output: Option<&std::path::Path>) -> std::path::PathBuf {
+    output
+        .map(std::path::Path::to_path_buf)
+        .unwrap_or_else(campus_db::paths::default_download_dir)
+}
+
+#[cfg(feature = "media")]
+pub(crate) fn run(
     args: &Args,
     db: &mut Database,
     paths: &Paths,
@@ -29,8 +36,8 @@ pub fn run(
         let id = id
             .as_deref()
             .ok_or_else(|| Error::Usage("courseware get COURSE:RESOURCE".into()))?;
-        let output = output.as_deref().unwrap_or(std::path::Path::new("."));
-        let data = courseware_download(db, paths, config, user, id, output)?;
+        let dir = download_target(output.as_deref());
+        let data = courseware_download(db, paths, config, user, id, &dir)?;
         emit(args, "transfer", Some(user), data)?;
         return Ok(0);
     }
@@ -46,8 +53,21 @@ pub fn run(
         let id = id
             .as_deref()
             .ok_or_else(|| Error::Usage("homework download ID".into()))?;
-        let output = output.as_deref().unwrap_or(std::path::Path::new("."));
-        let data = homework_download(db, paths, config, user, id, output, *submitted)?;
+        let dir = download_target(output.as_deref());
+        let data = homework_download(db, paths, config, user, id, &dir, *submitted)?;
+        emit(args, "transfer", Some(user), data)?;
+        return Ok(0);
+    }
+    if let Command::Mail {
+        action, id, output, ..
+    } = &args.command
+        && action == "download"
+    {
+        let id = id
+            .as_deref()
+            .ok_or_else(|| Error::Usage("mail download ID".into()))?;
+        let dir = download_target(output.as_deref());
+        let data = mail_download(db, paths, config, user, id, &dir)?;
         emit(args, "transfer", Some(user), data)?;
         return Ok(0);
     }
@@ -131,8 +151,8 @@ pub fn run(
                         if map.get("haveStream").and_then(parse::scalar).as_deref() == Some("0") {
                             return Err(Error::Rejected("recording is unavailable"));
                         }
-                        let dir = output.as_deref().unwrap_or(std::path::Path::new("."));
-                        std::fs::create_dir_all(dir).map_err(campus_db::storage)?;
+                        let dir = download_target(output.as_deref());
+                        std::fs::create_dir_all(&dir).map_err(campus_db::storage)?;
                         let mut results = Vec::new();
                         for kind in streams.split(',') {
                             let field = match kind {
@@ -250,7 +270,8 @@ pub(crate) fn courseware_download(
                 name = format!("{name}.{extension}");
             }
         }
-        let path = dir.join(name);
+        let mut used = std::collections::BTreeSet::new();
+        let path = unique_dest(dir, &mut used, &name);
         let size = session.fetcher.transport.download(url, &path).await?;
         Ok(json!({"path":path,"bytes":size}))
     })
@@ -263,7 +284,7 @@ fn unique_dest(
     raw_name: &str,
 ) -> std::path::PathBuf {
     let base = safe_name(raw_name);
-    if used.insert(base.clone()) {
+    if !dir.join(&base).exists() && used.insert(base.clone()) {
         return dir.join(base);
     }
     let (stem, ext) = match base.rsplit_once('.') {
@@ -275,11 +296,84 @@ fn unique_dest(
             Some(e) => format!("{stem} ({idx}).{e}"),
             None => format!("{stem} ({idx})"),
         };
-        if used.insert(candidate.clone()) {
+        if !dir.join(&candidate).exists() && used.insert(candidate.clone()) {
             return dir.join(candidate);
         }
     }
     unreachable!()
+}
+
+#[cfg(feature = "media")]
+pub(crate) fn refresh_mail_detail(
+    db: &mut Database,
+    paths: &Paths,
+    config: &Config,
+    user: &str,
+    id: &str,
+) -> Result<serde_json::Value> {
+    let _lock = campus_db::paths::SyncLock::acquire(paths)?;
+    let account = db.account(user)?;
+    let (transport, _) = campus_sync::load_transport(db, paths, config, Some(account))?;
+    let mut cached = db.rows(account, "mail")?;
+    let idx = cached
+        .iter()
+        .position(|v| v.get("id").and_then(parse::scalar).as_deref() == Some(id));
+
+    let msg = runtime()?.block_on(async {
+        let client = campus_net::mail::MailClient {
+            transport: &transport,
+        };
+        let sid = client.ensure_session().await?;
+        client.read_message(&sid, id).await
+    })?;
+
+    if let Some(i) = idx
+        && let Some(obj) = cached[i].as_object_mut()
+    {
+        obj.insert("from".into(), json!(msg.from));
+        obj.insert("to".into(), json!(msg.to));
+        obj.insert("cc".into(), json!(msg.cc));
+        obj.insert("body_text".into(), json!(msg.body_text));
+        obj.insert("attachments".into(), json!(msg.attachments));
+        let updated = cached[i].clone();
+        db.save(account, "mail", &cached, now())?;
+        return Ok(updated);
+    }
+    serde_json::to_value(&msg).map_err(|_| Error::Malformed("mail serialization"))
+}
+
+#[cfg(feature = "media")]
+pub(crate) fn mail_download(
+    db: &Database,
+    paths: &Paths,
+    config: &Config,
+    user: &str,
+    id: &str,
+    dir: &std::path::Path,
+) -> Result<serde_json::Value> {
+    let _lock = campus_db::paths::SyncLock::acquire(paths)?;
+    let account = db.account(user)?;
+    let (transport, _) = campus_sync::load_transport(db, paths, config, Some(account))?;
+    runtime()?.block_on(async {
+        let client = campus_net::mail::MailClient {
+            transport: &transport,
+        };
+        let sid = client.ensure_session().await?;
+        let msg = client.read_message(&sid, id).await?;
+        if msg.attachments.is_empty() {
+            return Err(Error::NoData);
+        }
+        std::fs::create_dir_all(dir).map_err(campus_db::storage)?;
+        let mut used = std::collections::BTreeSet::new();
+        let mut results = Vec::with_capacity(msg.attachments.len());
+        for att in &msg.attachments {
+            let bytes = client.download_attachment(&sid, &msg.id, &att.id).await?;
+            let path = unique_dest(dir, &mut used, &att.name);
+            std::fs::write(&path, &bytes).map_err(campus_db::storage)?;
+            results.push(json!({"path": path, "bytes": bytes.len(), "name": att.name}));
+        }
+        Ok(json!(results))
+    })
 }
 
 #[cfg(feature = "media")]
@@ -572,7 +666,30 @@ pub(crate) fn courseware_download(
 }
 
 #[cfg(not(feature = "media"))]
-pub fn run(
+pub(crate) fn refresh_mail_detail(
+    _db: &mut Database,
+    _paths: &Paths,
+    _config: &Config,
+    _user: &str,
+    _id: &str,
+) -> Result<serde_json::Value> {
+    Err(Error::Usage("this build has media disabled".into()))
+}
+
+#[cfg(not(feature = "media"))]
+pub(crate) fn mail_download(
+    _db: &Database,
+    _paths: &Paths,
+    _config: &Config,
+    _user: &str,
+    _id: &str,
+    _dir: &std::path::Path,
+) -> Result<serde_json::Value> {
+    Err(Error::Usage("this build has media disabled".into()))
+}
+
+#[cfg(not(feature = "media"))]
+pub(crate) fn run(
     _args: &Args,
     _db: &mut Database,
     _paths: &Paths,

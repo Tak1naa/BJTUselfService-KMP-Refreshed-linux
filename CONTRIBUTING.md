@@ -1,9 +1,7 @@
 # 贡献指南 (Contributing)
 
 感谢你对 **交大自由行（BJTU Self Service）** 的关注与支持！  
-本仓库包含两部分：
-- **`linux/`**：基于 Rust 构建的跨平台终端 & TUI 客户端「交大自由行 CLI」（`campus`），支持 Linux / macOS / Windows。
-- **`multiplatform/`**：基于 Kotlin Multiplatform + Compose Multiplatform 的图形客户端（Android / iOS / macOS / Windows）。
+本仓库主分支维护 **`linux/`** 下基于 Rust 构建的跨平台终端 & TUI 客户端「交大自由行 CLI」（`campus`），支持 Linux / macOS / Windows（原 Kotlin Multiplatform 图形端代码已归档至 Git 标签 `archive/kmp-upstream`）。
 
 ---
 
@@ -54,7 +52,7 @@ python3 scripts/benchmark.py target/x86_64-unknown-linux-musl/release/campus
 - **Windows x64**（`.zip`）：`python scripts/package-windows.py target/release/campus.exe`
 - **macOS**（`.tar.gz`）：`python3 scripts/package-macos.py ...`
 
-更多五层 Crate 架构说明与 Kotlin 对照细节，请参阅 [linux/docs/DEVELOPMENT.md](linux/docs/DEVELOPMENT.md)。
+更多五层 Crate 架构说明与开发基准规范，请参阅 [linux/docs/DEVELOPMENT.md](linux/docs/DEVELOPMENT.md)。
 
 ---
 

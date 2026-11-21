@@ -86,6 +86,7 @@ fn identity(command: &Command) -> (&'static str, &'static str, Accent) {
         Command::Exams { .. } => ("exams", "考试", AMBER),
         Command::Rooms { .. } => ("rooms", "教室", CYAN),
         Command::Card { .. } => ("card", "一卡通", GREEN),
+        Command::Mail { .. } => ("mail", "校内邮箱", BLUE),
         Command::Calendar { .. } => ("calendar", "学年历", BLUE),
         Command::Sync { .. } => ("sync", "同步", CYAN),
         Command::Export { .. } => ("export", "导出", PURPLE),
@@ -115,14 +116,82 @@ pub fn reason_label(reason: &str) -> Option<&'static str> {
     match reason {
         "secure_channel" => Some("学校服务未建立有效的 HTTPS 会话，跳转已拒绝"),
         "smart_legacy_http" => Some("智慧教学返回旧版 HTTP 地址，未发送会话请求"),
-        "session_expired" | "login_required" => Some("需要重新登录"),
+        "session_expired" | "login_required" => Some("登录会话已失效，需要重新登录"),
         "account_required" => Some("尚未配置物理在线独立账号"),
         "captcha_required" => Some("需要完成物理在线人机验证"),
         "credentials_rejected" => Some("物理在线账号或密码无效"),
         "phyvlab_profile_incomplete" => Some("物理在线要求先在网页完善个人资料"),
-        "network" => Some("网络请求失败"),
-        "malformed_response" => Some("学校服务返回的内容无法解析"),
+        "network" => Some("网络连接失败或请求超时"),
+        "malformed_response" => Some("学校服务返回的内容格式无法识别"),
         _ => None,
+    }
+}
+
+pub(crate) fn friendly_error(error: &Error) -> String {
+    match error {
+        Error::CacheUnavailable(reason) => format!(
+            "没有可用缓存。上次同步失败：{}。",
+            reason_label(reason).unwrap_or("原因未知")
+        ),
+        Error::NoData => {
+            "本地暂无记录或未找到对应条目（如果是下载附件，可能该项没有附件）。".into()
+        }
+        Error::SessionExpired => {
+            "登录状态已失效，请运行 campus auth login（或在界面按 l）重新登录。".into()
+        }
+        Error::Network => {
+            "网络连接失败或请求超时，请检查本机网络、校园网或学校 VPN 后重试。".into()
+        }
+        Error::SecureChannel => {
+            "安全校验未通过：目标服务未启用有效 HTTPS 或跳转到不受信任的域名，已拦截。".into()
+        }
+        Error::SmartLegacyHttp => "智慧教学跳转到了旧版 HTTP 地址，当前兼容开关未开启。".into(),
+        Error::Busy => "后台已有同步或传输任务正在运行，请稍候片刻再试。".into(),
+        Error::ActionRequired(reason) => reason_label(reason)
+            .unwrap_or("需要完成人机验证或账号配置")
+            .into(),
+        Error::Rejected(msg) => match *msg {
+            "release checksum mismatch" => {
+                "更新包 SHA-256 完整性校验未通过，已自动取消安装以保障安全。".into()
+            }
+            "teacher has not enabled downloads" => {
+                "授课老师未开放学生下载该课件，当前仅支持在教务网站在线预览。".into()
+            }
+            "recording is unavailable" => "该课程当前没有可用的录播回放资源。".into(),
+            "homework submission cancelled" => "已取消作业提交。".into(),
+            "update cancelled" => "已取消软件更新。".into(),
+            "captcha requires interactive login" => {
+                "当前环境无法弹出交互式验证码输入，请运行 campus auth login --captcha。".into()
+            }
+            "redirect limit"
+            | "mail redirect limit"
+            | "mail attachment redirect limit"
+            | "smart redirect limit"
+            | "too many update redirects" => {
+                "页面跳转次数过多，可能因登录会话失效引起，请重新登录后重试。".into()
+            }
+            other => clean(other),
+        },
+        Error::Malformed(what) => {
+            if what.contains("checksum") {
+                "更新校验文件解析失败，请稍后重试。".into()
+            } else if what.contains("github") {
+                "获取 GitHub 发布列表失败或返回格式异常，请检查网络或代理设置。".into()
+            } else {
+                "服务返回的数据格式与预期不符，可能由于会话失效或页面改版导致，请尝试重新登录或同步。".into()
+            }
+        }
+        Error::Storage(detail) => {
+            let lower = detail.to_ascii_lowercase();
+            if lower.contains("permission denied") || lower.contains("read-only") {
+                format!("本地文件写入失败（权限不足）：{}", clean(detail))
+            } else if lower.contains("no such file") || lower.contains("not found") {
+                format!("找不到指定文件或目录：{}", clean(detail))
+            } else {
+                format!("本地读写出错：{}", clean(detail))
+            }
+        }
+        Error::Usage(msg) => clean(msg),
     }
 }
 
@@ -142,20 +211,7 @@ pub fn error(args: &Args, error: &Error) {
     let (name, title, _) = identity(&args.command);
     let colored = color_enabled(args, std::io::stderr().is_terminal());
     let label = paint(colored, RED.style(true), "错误");
-    let message = match error {
-        Error::CacheUnavailable(reason) => format!(
-            "没有可用缓存。上次同步失败：{}。",
-            reason_label(reason).unwrap_or("原因未知")
-        ),
-        Error::NoData => "没有可用缓存或找不到指定记录。".into(),
-        Error::SessionExpired => "没有有效会话，请运行 campus auth login。".into(),
-        Error::SecureChannel => "学校服务未建立有效的 HTTPS 会话，跳转已拒绝。".into(),
-        Error::SmartLegacyHttp => "智慧教学返回旧版 HTTP 地址，未发送会话请求。".into(),
-        Error::ActionRequired(reason) => reason_label(reason)
-            .unwrap_or("需要人工完成验证或配置")
-            .into(),
-        other => clean(&other.to_string()),
-    };
+    let message = friendly_error(error);
     eprintln!("{label}  {title}  │  {message}");
     if args.quiet {
         return;
@@ -309,6 +365,14 @@ pub fn render(args: &Args, value: &Value) {
     } else if records[0].is_object() {
         let preferred: &[&str] = match name {
             "homework" => &["id", "course_name", "title", "end_time", "subStatus"],
+            "mail" => &[
+                "id",
+                "is_read",
+                "subject",
+                "sender",
+                "sent_at",
+                "has_attachments",
+            ],
             "phyvlab" => &[
                 "id",
                 "course_name",
@@ -477,6 +541,17 @@ fn field_label(key: &str) -> &str {
         "card_balance" => "一卡通余额",
         "net_fee" => "网费余额",
         "new_mail" => "未读邮件",
+        "sender" => "发件人",
+        "subject" => "主题",
+        "preview" => "摘要",
+        "sent_at" => "发送时间",
+        "received_at" => "接收时间",
+        "is_read" => "状态",
+        "has_attachments" => "含附件",
+        "from" => "发件人",
+        "to" => "收件人",
+        "cc" => "抄送",
+        "body_text" => "正文",
         "dataset" => "数据",
         "status" => "状态",
         "count" => "记录",
@@ -510,6 +585,7 @@ fn present(key: &str, value: &Value) -> String {
             _ => return clean(s),
         }
         .into(),
+        ("is_read", Value::Bool(read)) => if *read { "已读" } else { "未读" }.into(),
         ("content", Value::String(s)) => campus_core::parse::homework_text(s),
         ("weighted_average" | "gpa", Value::Number(n)) => n
             .as_f64()

@@ -1,19 +1,4 @@
-*.iml
-.gradle
-/local.properties
-/.idea/caches
-/.idea/libraries
-/.idea/modules.xml
-/.idea/workspace.xml
-/.idea/navEditor.xml
-/.idea/assetWizardSettings.xml
 .DS_Store
-/build
-/captures
-.externalNativeBuild
-.cxx
-local.properties
-/.idea/
 
 # Local MIS credentials; never commit this file.
 /MisSecret.md
@@ -21,27 +6,10 @@ local.properties
 
 # Verification artifacts (baselines, screenshots, audit evidence); local only.
 /.artifacts/
-/multiplatform/.artifacts/
 
-# Local build / IDE caches that must never be published
-**/DerivedData*/
-**/ModuleCache.noindex/
-**/*.xcuserstate
-**/xcuserdata/
-*.hmap
-*.ipa
-*.dSYM/
-
-# Local packaged app builds (APK/app/DMG); do not commit.
+# Local packaged builds and Rust build output; do not commit.
 /builtapps/
-
-# jpackage 生成的 WiX 中间文件（本地打包副产物；仓库里跟踪的 main.wxs 不受影响）。
-/*.wxs
-/multiplatform/*.wxs
-
-# Android signing keys; never commit.
-*.jks
-*.keystore
+/linux/target/
 
 # Local agent skills and memory.
 /.agents/

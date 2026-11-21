@@ -9,6 +9,7 @@ pub const DATASETS: &[&str] = &[
     "grade_types",
     "exams",
     "card",
+    "mail",
     "calendar",
     "rooms",
     "homework",
@@ -197,6 +198,7 @@ impl Fetcher<'_> {
                 values(parse::rooms(&r.data(&self.transport.endpoints.aa)?)?)
             }
             "homework" | "courseware" => self.smart_dataset(dataset).await,
+            "mail" => self.mail_dataset().await,
             _ => Err(Error::Usage(format!("unknown dataset: {dataset}"))),
         }
     }
@@ -527,6 +529,53 @@ impl Fetcher<'_> {
             }
         }
         Ok(out)
+    }
+
+    pub async fn mail_dataset(&self) -> Result<Vec<Value>> {
+        use futures_util::{StreamExt, stream};
+
+        let client = crate::mail::MailClient {
+            transport: self.transport,
+        };
+        let sid = client.ensure_session().await?;
+        let summaries = client.list_inbox(&sid, 40).await?;
+        let details = stream::iter(summaries.iter().take(15).map(|summary| {
+            let sid = sid.as_str();
+            let id = summary.id.as_str();
+            async move { (id.to_owned(), client.read_message(sid, id).await) }
+        }))
+        .buffer_unordered(4)
+        .collect::<Vec<_>>()
+        .await;
+
+        let mut detail_map = std::collections::HashMap::new();
+        for (id, result) in details {
+            match result {
+                Ok(msg) => {
+                    detail_map.insert(id, msg);
+                }
+                Err(Error::SessionExpired) => return Err(Error::SessionExpired),
+                Err(_) => {}
+            }
+        }
+
+        summaries
+            .into_iter()
+            .map(|summary| {
+                let mut row = serde_json::to_value(&summary)
+                    .map_err(|_| Error::Malformed("mail serialization"))?;
+                if let Some(detail) = detail_map.remove(&summary.id)
+                    && let Some(obj) = row.as_object_mut()
+                {
+                    obj.insert("from".into(), serde_json::json!(detail.from));
+                    obj.insert("to".into(), serde_json::json!(detail.to));
+                    obj.insert("cc".into(), serde_json::json!(detail.cc));
+                    obj.insert("body_text".into(), serde_json::json!(detail.body_text));
+                    obj.insert("attachments".into(), serde_json::json!(detail.attachments));
+                }
+                Ok(row)
+            })
+            .collect()
     }
 }
 pub fn smart_array(root: &Value, key: &'static str) -> Result<Vec<Value>> {

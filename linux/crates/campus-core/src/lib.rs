@@ -1,6 +1,7 @@
 //! Pure BJTU domain rules; no filesystem, runtime, credentials or network access.
 pub mod calendar;
 pub mod capture;
+pub mod mail;
 pub mod parse;
 pub mod phyvlab;
 pub mod update;

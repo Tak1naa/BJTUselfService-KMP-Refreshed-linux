@@ -58,6 +58,13 @@ impl Paths {
         self.data.join("campus.db")
     }
 }
+
+/// Returns the user's OS Downloads directory, falling back to `~/Downloads` or `.`.
+pub fn default_download_dir() -> PathBuf {
+    dirs::download_dir()
+        .or_else(|| dirs::home_dir().map(|h| h.join("Downloads")))
+        .unwrap_or_else(|| PathBuf::from("."))
+}
 #[cfg(unix)]
 pub fn current_uid() -> u32 {
     rustix::process::getuid().as_raw()

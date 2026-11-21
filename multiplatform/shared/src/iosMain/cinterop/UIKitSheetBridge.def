@@ -1,5 +1,0 @@
-language = Objective-C
-headers = UIKitSheetBridge.h
-compilerOpts = -framework UIKit
-linkerOpts = -framework UIKit
-package = team.bjtuss.bjtuselfservice.shared

@@ -27,6 +27,7 @@ pub fn endpoints(config: &Config) -> Result<Endpoints> {
         "smart",
         "headcount",
         "phyvlab",
+        "mail",
     ] {
         if let Some(v) = config.get(&format!("endpoints.{key}")) {
             e.configure(key, &v)?;

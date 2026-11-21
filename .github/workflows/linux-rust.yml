@@ -89,6 +89,31 @@ jobs:
             target/aarch64-apple-darwin/release/campus \
             target/x86_64-apple-darwin/release/campus
           lipo -info artifacts/campus-macos-universal
+      - name: Sign macOS binaries (Developer ID if configured, else ad-hoc)
+        env:
+          APPLE_SIGN_CERT_P12_B64: ${{ secrets.APPLE_SIGN_CERT_P12_B64 }}
+          APPLE_SIGN_CERT_PASSWORD: ${{ secrets.APPLE_SIGN_CERT_PASSWORD }}
+          APPLE_SIGN_IDENTITY: ${{ secrets.APPLE_SIGN_IDENTITY }}
+        run: |
+          if [ -n "$APPLE_SIGN_CERT_P12_B64" ] && [ -n "$APPLE_SIGN_IDENTITY" ]; then
+            echo "$APPLE_SIGN_CERT_P12_B64" | base64 -d > "$RUNNER_TEMP/cert.p12"
+            KEYCHAIN="$RUNNER_TEMP/build.keychain-db"
+            security create-keychain -p "build-temp" "$KEYCHAIN"
+            security set-keychain-settings -lut 21600 "$KEYCHAIN"
+            security unlock-keychain -p "build-temp" "$KEYCHAIN"
+            security import "$RUNNER_TEMP/cert.p12" -k "$KEYCHAIN" -P "$APPLE_SIGN_CERT_PASSWORD" -T /usr/bin/codesign
+            security set-key-partition-list -S apple-tool:,apple:,codesign: -s -k "build-temp" "$KEYCHAIN"
+            security list-keychain -d user -s "$KEYCHAIN"
+            for bin in artifacts/campus-macos-universal target/aarch64-apple-darwin/release/campus target/x86_64-apple-darwin/release/campus; do
+              codesign --force --options runtime --timestamp --sign "$APPLE_SIGN_IDENTITY" "$bin"
+            done
+            rm -f "$RUNNER_TEMP/cert.p12"
+          else
+            for bin in artifacts/campus-macos-universal target/aarch64-apple-darwin/release/campus target/x86_64-apple-darwin/release/campus; do
+              codesign --force --sign - --timestamp=none "$bin"
+            done
+          fi
+          codesign -dv --verbose=2 artifacts/campus-macos-universal 2>&1 || true
       - name: Benchmark and package macOS archives
         run: |
           python3 scripts/benchmark.py target/aarch64-apple-darwin/release/campus --version-max-ms 50 --max-ms 50 --output artifacts/benchmark-macos.json
@@ -119,6 +144,24 @@ jobs:
       - run: cargo clippy --locked --workspace --all-targets -- -D warnings
       - run: cargo test --locked --workspace
       - run: cargo build --locked --release -p campus-cli
+      - name: Sign Windows binary if Authenticode secret is configured
+        shell: pwsh
+        env:
+          WINDOWS_CERT_PFX_B64: ${{ secrets.WINDOWS_CERT_PFX_B64 }}
+          WINDOWS_CERT_PASSWORD: ${{ secrets.WINDOWS_CERT_PASSWORD }}
+        run: |
+          if ($env:WINDOWS_CERT_PFX_B64) {
+            $pfx = Join-Path $env:RUNNER_TEMP 'campus-sign.pfx'
+            [IO.File]::WriteAllBytes($pfx, [Convert]::FromBase64String($env:WINDOWS_CERT_PFX_B64))
+            $signtool = Get-ChildItem 'C:\Program Files (x86)\Windows Kits\10\bin' -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue |
+              Where-Object { $_.FullName -match 'x64' } | Select-Object -First 1 -ExpandProperty FullName
+            if (-not $signtool) { throw 'signtool.exe not found' }
+            & $signtool sign /f $pfx /p $env:WINDOWS_CERT_PASSWORD /fd SHA256 /tr http://timestamp.digicert.com /td SHA256 target/release/campus.exe
+            if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+            Remove-Item -Force $pfx
+          } else {
+            Write-Host 'WINDOWS_CERT_PFX_B64 not set; skipping Authenticode signing.'
+          }
       - run: python scripts/package-windows.py target/release/campus.exe
       - uses: actions/upload-artifact@v4
         with:

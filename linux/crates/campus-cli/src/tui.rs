@@ -111,12 +111,15 @@ const PAGES: &[Page] = &[
         fields: &[("room", "教室"), ("capacity", "容量")],
     },
     Page {
-        dataset: "card",
-        title: "一卡通",
+        dataset: "mail",
+        title: "邮箱",
         fields: &[
-            ("card_balance", "校园卡余额"),
-            ("net_fee", "网费余额"),
-            ("new_mail", "未读邮件"),
+            ("is_read", "状态"),
+            ("subject", "主题"),
+            ("sender", "发件人"),
+            ("has_attachments", "附件"),
+            ("sent_at", "时间"),
+            ("id", "ID"),
         ],
     },
     Page {
@@ -572,7 +575,7 @@ impl App {
                             .collect::<Vec<_>>()
                             .join("，");
                         if !names.is_empty() {
-                            extra.push(format!("老师附件  {names}（按 d 下载至 ./homework）"));
+                            extra.push(format!("老师附件  {names}（按 d 下载至系统下载文件夹）"));
                         }
                     }
                     if let Some(items) = row["submitted_attachments"]
@@ -597,6 +600,64 @@ impl App {
                     cells.push(extra.join("\n\n"));
                     self.download_ids
                         .push(campus_core::parse::scalar(&row["id"]));
+                } else if page.dataset == "mail" {
+                    let mut extra = Vec::new();
+                    if let Some(from) = row["from"].as_array().filter(|a| !a.is_empty()) {
+                        let list = from
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join("，");
+                        if !list.is_empty() {
+                            extra.push(format!("发件人  {list}"));
+                        }
+                    }
+                    if let Some(to) = row["to"].as_array().filter(|a| !a.is_empty()) {
+                        let list = to
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join("，");
+                        if !list.is_empty() {
+                            extra.push(format!("收件人  {list}"));
+                        }
+                    }
+                    if let Some(cc) = row["cc"].as_array().filter(|a| !a.is_empty()) {
+                        let list = cc
+                            .iter()
+                            .filter_map(|v| v.as_str())
+                            .collect::<Vec<_>>()
+                            .join("，");
+                        if !list.is_empty() {
+                            extra.push(format!("抄送  {list}"));
+                        }
+                    }
+                    if let Some(items) = row["attachments"].as_array().filter(|a| !a.is_empty()) {
+                        let names = items
+                            .iter()
+                            .filter_map(|a| a["name"].as_str())
+                            .collect::<Vec<_>>()
+                            .join("，");
+                        if !names.is_empty() {
+                            extra.push(format!("邮件附件  {names}（按 d 下载至系统下载文件夹）"));
+                        }
+                    }
+                    let body = row["body_text"]
+                        .as_str()
+                        .filter(|s| !s.is_empty())
+                        .or_else(|| row["preview"].as_str())
+                        .unwrap_or_default();
+                    if !body.is_empty() {
+                        extra.push(body.to_owned());
+                    }
+                    cells.push(extra.join("\n\n"));
+                    let has_att = row["has_attachments"].as_bool() == Some(true)
+                        || row["attachments"].as_array().is_some_and(|a| !a.is_empty());
+                    self.download_ids.push(
+                        has_att
+                            .then(|| campus_core::parse::scalar(&row["id"]))
+                            .flatten(),
+                    );
                 } else if page.dataset == "calendar"
                     && current_week.as_ref().is_some_and(|(term, week)| {
                         row["term"] == term.as_str() && row["week"] == *week
@@ -812,7 +873,10 @@ impl App {
                     None
                 }
                 KeyCode::Char('d')
-                    if matches!(self.page().dataset, "homework" | "courseware" | "phyvlab") =>
+                    if matches!(
+                        self.page().dataset,
+                        "homework" | "courseware" | "phyvlab" | "mail"
+                    ) =>
                 {
                     self.download(args, paths, config, user.as_deref());
                     None
@@ -847,7 +911,7 @@ impl App {
                                 self.status = "请先在浏览器打开 https://phyvlab.bjtu.edu.cn/user/edit.php 完善个人资料。".into();
                             }
                             Err(err) => {
-                                self.status = crate::output::clean(&err.to_string());
+                                self.status = crate::output::friendly_error(&err);
                             }
                         }
                     } else {
@@ -958,6 +1022,7 @@ impl App {
             self.status = match dataset {
                 "phyvlab" => "当前物理在线作业没有可下载的老师附件。",
                 "homework" => "请选择一项作业下载附件。",
+                "mail" => "当前选中邮件没有可下载附件。",
                 _ => "请选择可下载的课件。",
             }
             .into();
@@ -969,14 +1034,14 @@ impl App {
         let config = Config {
             values: config.values.clone(),
         };
+        let target_dir = if dataset == "phyvlab" {
+            std::path::PathBuf::from("phyvlab")
+        } else {
+            campus_db::paths::default_download_dir()
+        };
         let (tx, rx) = mpsc::channel();
         self.worker = Some(rx);
-        self.status = match dataset {
-            "phyvlab" => "正在下载至 ./phyvlab…",
-            "homework" => "正在下载至 ./homework…",
-            _ => "正在下载至 ./courseware…",
-        }
-        .into();
+        self.status = format!("正在下载至 {}…", target_dir.display());
         std::thread::spawn(move || {
             let result = (|| {
                 let db = open_database(&paths, &config)?;
@@ -990,7 +1055,7 @@ impl App {
                         &config,
                         &user,
                         act_id,
-                        std::path::Path::new("phyvlab"),
+                        &target_dir,
                     )?;
                     Ok(files.as_array().cloned().unwrap_or_else(|| vec![files]))
                 } else if dataset == "homework" {
@@ -1000,8 +1065,18 @@ impl App {
                         &config,
                         &user,
                         &id,
-                        std::path::Path::new("homework"),
+                        &target_dir,
                         false,
+                    )?;
+                    Ok(files.as_array().cloned().unwrap_or_else(|| vec![files]))
+                } else if dataset == "mail" {
+                    let files = crate::transfer::mail_download(
+                        &db,
+                        &paths,
+                        &config,
+                        &user,
+                        &id,
+                        &target_dir,
                     )?;
                     Ok(files.as_array().cloned().unwrap_or_else(|| vec![files]))
                 } else {
@@ -1011,7 +1086,7 @@ impl App {
                         &config,
                         &user,
                         &id,
-                        std::path::Path::new("courseware"),
+                        &target_dir,
                     )?;
                     Ok(vec![file])
                 }
@@ -1075,7 +1150,7 @@ impl App {
                 self.status = "会话已过期，请按 l 重新登录。".into();
             }
             Err(err) => {
-                self.status = crate::output::clean(&err.to_string());
+                self.status = crate::output::friendly_error(&err);
             }
         }
         Ok(())
@@ -1105,7 +1180,7 @@ impl App {
                 self.status = format!("当前已是最新版本 {}。", env!("CARGO_PKG_VERSION"));
             }
             Err(err) => {
-                self.status = crate::output::clean(&err.to_string());
+                self.status = crate::output::friendly_error(&err);
             }
         }
         Ok(())
@@ -1360,6 +1435,8 @@ impl App {
                         homework_submission_color(&row[j], Some(&row[2]), current)
                     } else if page.dataset == "phyvlab" && page.fields[j].0 == "status_label" {
                         submission_color(&row[j])
+                    } else if page.dataset == "mail" && page.fields[j].0 == "is_read" {
+                        Some(if row[j] == "已读" { GREEN } else { RED })
                     } else if current_week {
                         Some(GREEN)
                     } else {
@@ -1446,9 +1523,11 @@ impl App {
             }
             .into()
         } else if page.dataset == "homework" && !offline {
-            "↑↓ 选行   Enter 详情   d 下附件(./homework)   u 上传   / 筛选   r 同步   q 退出".into()
+            "↑↓ 选行   Enter 详情   d 下附件(下载文件夹)   u 上传   / 筛选   r 同步   q 退出".into()
+        } else if page.dataset == "mail" && !offline {
+            "↑↓ 选邮件   Enter 读信   d 下附件(下载文件夹)   / 筛选   r 同步   q 退出".into()
         } else if page.dataset == "courseware" && !offline {
-            "↑↓ 选文件   / 筛选   d 下载至 ./courseware   r 同步   q 退出".into()
+            "↑↓ 选文件   / 筛选   d 下载至下载文件夹   r 同步   q 退出".into()
         } else if page.dataset == "phyvlab" && !offline {
             "↑↓ 选行   Enter 详情   l 登录   d 下附件(./phyvlab)   / 筛选   r 同步   q 退出".into()
         } else if offline {
@@ -1560,6 +1639,26 @@ fn value_for(key: &str, row: &Value) -> String {
             .to_string(),
         "slot" => (row["location_index"].as_u64().unwrap_or(0) / 8 + 1).to_string(),
         "subStatus" => campus_core::parse::homework_status(row).into(),
+        "is_read" => {
+            if row["is_read"].as_bool() == Some(true) {
+                "已读".into()
+            } else {
+                "未读".into()
+            }
+        }
+        "has_attachments" => {
+            if let Some(n) = row["attachments"]
+                .as_array()
+                .map(Vec::len)
+                .filter(|n| *n > 0)
+            {
+                format!("{n} 个")
+            } else if row["has_attachments"].as_bool() == Some(true) {
+                "有".into()
+            } else {
+                "—".into()
+            }
+        }
         "week" => format!("第 {} 周", crate::output::cell(&row[key])),
         "file_count" => row["nodes"].as_array().map_or(0, Vec::len).to_string(),
         "last_success_at" => row[key].as_i64().map(time_label).unwrap_or_default(),
@@ -1609,8 +1708,7 @@ fn summarize(result: Result<Vec<Value>>) -> String {
                 )
             }
         }
-        Err(Error::SessionExpired) => "会话已过期，请运行 campus auth login。".into(),
-        Err(e) => crate::output::clean(&e.to_string()),
+        Err(e) => crate::output::friendly_error(&e),
     }
 }
 

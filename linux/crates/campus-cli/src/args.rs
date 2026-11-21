@@ -99,6 +99,14 @@ pub enum Command {
         #[command(subcommand)]
         action: Option<Card>,
     },
+    /// 查看校内邮箱收件箱、邮件正文或下载附件
+    Mail {
+        #[arg(default_value = "list", value_parser = ["list", "show", "download"])]
+        action: String,
+        id: Option<String>,
+        #[arg(short = 'o', long)]
+        output: Option<std::path::PathBuf>,
+    },
     /// 查看教学周与学年历
     Calendar {
         #[arg(default_value = "now",value_parser=["now","weeks"])]

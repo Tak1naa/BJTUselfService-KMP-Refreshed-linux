@@ -3,6 +3,7 @@ mod terminal;
 use crate::args::{Args, Command, Format};
 use campus_core::{Error, Result};
 use serde_json::{Value, json};
+pub(crate) use terminal::friendly_error;
 pub use terminal::{error, help_color, help_styles, reason_label};
 pub fn envelope(
     command: &str,

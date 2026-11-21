@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod fetch;
+pub mod mail;
 #[cfg(feature = "media")]
 pub mod media;
 pub mod phyvlab;

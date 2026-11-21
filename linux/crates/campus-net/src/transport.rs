@@ -115,6 +115,10 @@ fn default_phyvlab() -> Url {
     "https://phyvlab.bjtu.edu.cn/".parse().unwrap()
 }
 
+fn default_mail() -> Url {
+    "https://mail.bjtu.edu.cn/".parse().unwrap()
+}
+
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Endpoints {
     pub mis: Url,
@@ -125,6 +129,8 @@ pub struct Endpoints {
     pub headcount: Url,
     #[serde(default = "default_phyvlab")]
     pub phyvlab: Url,
+    #[serde(default = "default_mail")]
+    pub mail: Url,
     #[serde(skip)]
     pub legacy_homework: bool,
     #[serde(skip)]
@@ -142,6 +148,7 @@ impl Default for Endpoints {
             smart: "https://bksycenter.bjtu.edu.cn/".parse().unwrap(),
             headcount: "http://yaya.csoci.com:2333/".parse().unwrap(),
             phyvlab: default_phyvlab(),
+            mail: default_mail(),
             legacy_homework: false,
             legacy_courseware: false,
             test_http: false,
@@ -178,6 +185,7 @@ impl Endpoints {
             "smart" => self.smart = u,
             "headcount" => self.headcount = u,
             "phyvlab" => self.phyvlab = u,
+            "mail" => self.mail = u,
             _ => return Err(Error::Usage("unknown endpoint".into())),
         }
         Ok(())
@@ -213,6 +221,12 @@ impl Endpoints {
     pub fn phyvlab_allowed(&self, u: &Url) -> bool {
         self.secure(u) && same_origin(u, &self.phyvlab)
     }
+    pub fn mail_allowed(&self, u: &Url) -> bool {
+        self.secure(u) && same_origin(u, &self.mail)
+    }
+    pub fn mail_entry_allowed(&self, u: &Url) -> bool {
+        self.school_allowed(u) || self.mail_allowed(u)
+    }
     #[cfg(test)]
     pub fn for_test(base: &str) -> Self {
         let u = Url::parse(base).unwrap();
@@ -224,7 +238,8 @@ impl Endpoints {
             calendar: u.clone(),
             smart: u.clone(),
             headcount: u.clone(),
-            phyvlab: u,
+            phyvlab: u.clone(),
+            mail: u,
             legacy_homework: false,
             legacy_courseware: false,
             test_http: true,
@@ -723,6 +738,111 @@ impl SchoolTransport {
             return Err(Error::SecureChannel);
         }
         self.once(Method::GET, url, None, true, None).await
+    }
+    pub(crate) async fn mail_follow_entry(&self, mut url: Url) -> Result<Reply> {
+        for _ in 0..12 {
+            if !self.endpoints.mail_entry_allowed(&url) {
+                return Err(Error::SecureChannel);
+            }
+            let r = self
+                .once(Method::GET, url.clone(), None, false, None)
+                .await?;
+            if !(300..400).contains(&r.status) {
+                return Ok(r);
+            }
+            url = url
+                .join(
+                    r.location
+                        .as_deref()
+                        .ok_or(Error::Malformed("mail redirect location"))?,
+                )
+                .map_err(|_| Error::SecureChannel)?;
+        }
+        Err(Error::Rejected("mail redirect limit"))
+    }
+    pub(crate) async fn mail_send(
+        &self,
+        url: Url,
+        build: impl FnOnce(&Client, &Url) -> reqwest::RequestBuilder,
+    ) -> Result<Reply> {
+        if !self.endpoints.mail_allowed(&url) {
+            return Err(Error::SecureChannel);
+        }
+        let gate = self.gate(&url).await;
+        let _permit = gate.permit.acquire().await.map_err(|_| Error::Network)?;
+        gate.wait().await;
+        let response = build(&self.school, &url)
+            .send()
+            .await
+            .map_err(|_| Error::Network)?;
+        let status = response.status().as_u16();
+        if status == 401 || status == 403 {
+            return Err(Error::SessionExpired);
+        }
+        read_reply(url, response).await
+    }
+    pub(crate) async fn mail_get_attachment(&self, mut url: Url) -> Result<Vec<u8>> {
+        let referer = self
+            .endpoints
+            .mail
+            .join("/coremail/XT/index.jsp")
+            .unwrap()
+            .to_string();
+        for _ in 0..6 {
+            if !self.endpoints.mail_allowed(&url) {
+                return Err(Error::SecureChannel);
+            }
+            let gate = self.gate(&url).await;
+            let _permit = gate.permit.acquire().await.map_err(|_| Error::Network)?;
+            gate.wait().await;
+            let response = self
+                .school
+                .get(url.clone())
+                .header("Referer", &referer)
+                .send()
+                .await
+                .map_err(|_| Error::Network)?;
+            let status = response.status();
+            if status.is_redirection() {
+                let loc = response
+                    .headers()
+                    .get(header::LOCATION)
+                    .and_then(|v| v.to_str().ok())
+                    .ok_or(Error::Malformed("mail attachment redirect"))?;
+                if loc.chars().any(char::is_control) {
+                    return Err(Error::SecureChannel);
+                }
+                url = url.join(loc).map_err(|_| Error::SecureChannel)?;
+                continue;
+            }
+            if status.as_u16() == 401 || status.as_u16() == 403 {
+                return Err(Error::SessionExpired);
+            }
+            if !status.is_success() {
+                return Err(Error::Network);
+            }
+            if !url.path().starts_with("/coremail/mbox-data") {
+                return Err(Error::SessionExpired);
+            }
+            let content_type = response
+                .headers()
+                .get(header::CONTENT_TYPE)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            let disposition = response
+                .headers()
+                .get(header::CONTENT_DISPOSITION)
+                .and_then(|v| v.to_str().ok())
+                .unwrap_or_default()
+                .to_ascii_lowercase();
+            if content_type.starts_with("text/html") && !disposition.contains("attachment") {
+                return Err(Error::SessionExpired);
+            }
+            let reply = read_reply(url, response).await?;
+            return Ok(reply.bytes);
+        }
+        Err(Error::Rejected("mail attachment redirect limit"))
     }
 }
 

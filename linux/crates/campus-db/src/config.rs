@@ -18,6 +18,7 @@ const KEYS: &[&str] = &[
     "endpoints.smart",
     "endpoints.headcount",
     "endpoints.phyvlab",
+    "endpoints.mail",
     "grades.fresh_seconds",
     "update.check",
 ];

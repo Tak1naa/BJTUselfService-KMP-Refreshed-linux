@@ -440,3 +440,57 @@ fn update_command_rejects_offline_and_accepts_check_config() {
     let parsed: Value = serde_json::from_slice(&cfg_get.stdout).unwrap();
     assert_eq!(parsed["data"], "off");
 }
+
+#[test]
+fn mail_offline_lists_unread_shows_detail_and_renders_friendly_errors() {
+    let f = Fixture::new();
+    let mut db = Database::open(&f.temp.path().join("data/campus-portal/campus.db")).unwrap();
+    let id = db.account("fixture-user").unwrap();
+    db.save(
+        id,
+        "mail",
+        &[json!({
+            "id": "m:101",
+            "folder_id": 1,
+            "sender": "教务处 <jw@bjtu.edu.cn>",
+            "subject": "关于选课通知",
+            "preview": "请及时确认选课",
+            "sent_at": "2026-11-20 09:00:00",
+            "received_at": "2026-11-20 09:00:01",
+            "size_bytes": 1024,
+            "is_read": false,
+            "has_attachments": true,
+            "recipients": ["student@bjtu.edu.cn"],
+            "from": ["教务处 <jw@bjtu.edu.cn>"],
+            "to": ["student@bjtu.edu.cn"],
+            "cc": [],
+            "body_text": "请各位同学按时确认选课名单。",
+            "attachments": [{"id": "3", "name": "选课指南.pdf", "size_bytes": 4096, "content_type": "application/pdf"}]
+        })],
+        jiff::Timestamp::now().as_second(),
+    )
+    .unwrap();
+
+    let listed = f.cmd().args(["mail", "--offline"]).output().unwrap();
+    assert!(listed.status.success());
+    let list_text = String::from_utf8(listed.stdout).unwrap();
+    assert!(list_text.contains("关于选课通知") && list_text.contains("未读"));
+
+    let show = f
+        .cmd()
+        .args(["mail", "show", "m:101", "--offline"])
+        .output()
+        .unwrap();
+    assert!(show.status.success());
+    let show_text = String::from_utf8(show.stdout).unwrap();
+    assert!(show_text.contains("选课指南.pdf") && show_text.contains("按时确认选课名单"));
+
+    let no_mail = f
+        .cmd()
+        .args(["mail", "show", "missing-id", "--offline"])
+        .output()
+        .unwrap();
+    assert_eq!(no_mail.status.code(), Some(2));
+    let err_text = String::from_utf8(no_mail.stderr).unwrap();
+    assert!(err_text.contains("本地暂无记录或未找到对应条目"));
+}
