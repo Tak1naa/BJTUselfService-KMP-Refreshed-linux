@@ -24,6 +24,7 @@ mod phyvlab;
 mod timer;
 mod transfer;
 mod tui;
+mod update;
 use args::*;
 use campus_core::{AcademicWeek, Course, Error, Exam, Freshness, Result};
 use campus_db::{Database, config::Config, paths::Paths};
@@ -63,6 +64,7 @@ fn main() -> ExitCode {
         println!(concat!("campus ", env!("CARGO_PKG_VERSION")));
         return ExitCode::SUCCESS;
     }
+    update::cleanup_stale_old_exe();
     let mut raw: Vec<_> = std::env::args_os().collect();
     if raw.len() == 1 && tui::interactive() {
         raw.push("tui".into());
@@ -130,6 +132,7 @@ fn log_outcome(args: &Args, code: u8) -> Result<()> {
         Command::Config { .. } => "config",
         Command::Cache { .. } => "cache",
         Command::Completions { .. } => "completions",
+        Command::Update { .. } => "update",
         Command::Tui => "tui",
         #[cfg(feature = "developer")]
         Command::Debug { .. } => "debug",
@@ -256,6 +259,7 @@ fn run(args: &Args) -> Result<u8> {
     let user = args.account.clone().or(db.pref("", "default_account")?);
     match &args.command {
         Command::Tui => tui::run(args, &mut db, &paths, &config, user.as_deref()),
+        Command::Update { check, yes } => update::run(args, &mut db, &paths, *check, *yes),
         Command::Auth { action } => auth(args, action, &mut db, &paths, &config, user.as_deref()),
         Command::Cache { action, yes } => {
             let data = match action.as_str() {

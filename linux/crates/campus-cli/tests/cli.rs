@@ -417,3 +417,26 @@ fn homework_lists_unsubmitted_first_sorted_by_due_and_dims_overdue() {
     assert!(show_text.contains("老师附件") && show_text.contains("实验指导.pdf"));
     assert!(show_text.contains("已交附件") && show_text.contains("我的报告.pdf"));
 }
+
+#[test]
+fn update_command_rejects_offline_and_accepts_check_config() {
+    let f = Fixture::new();
+    let offline = f.cmd().args(["update", "--offline"]).output().unwrap();
+    assert_eq!(offline.status.code(), Some(64));
+
+    let cfg_off = f
+        .cmd()
+        .args(["config", "set", "update.check", "off"])
+        .output()
+        .unwrap();
+    assert!(cfg_off.status.success());
+
+    let cfg_get = f
+        .cmd()
+        .args(["config", "get", "update.check", "--json"])
+        .output()
+        .unwrap();
+    assert!(cfg_get.status.success());
+    let parsed: Value = serde_json::from_slice(&cfg_get.stdout).unwrap();
+    assert_eq!(parsed["data"], "off");
+}

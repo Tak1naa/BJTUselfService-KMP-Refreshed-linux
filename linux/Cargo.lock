@@ -532,6 +532,7 @@ dependencies = [
  "base64 0.22.1",
  "campus-core",
  "cookie_store",
+ "flate2",
  "futures-util",
  "hex",
  "reqwest",

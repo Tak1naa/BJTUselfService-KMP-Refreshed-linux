@@ -4,6 +4,7 @@ pub mod fetch;
 pub mod media;
 pub mod phyvlab;
 pub mod transport;
+pub mod update;
 pub use transport::{Endpoints, SchoolTransport};
 
 mod gbk;

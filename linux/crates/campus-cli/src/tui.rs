@@ -188,6 +188,28 @@ pub fn run(
         active_user = Some(logged_in);
     }
     let mut account = active_user.as_deref().map(|s| db.account(s)).transpose()?;
+    let update_notice = if !args.offline && config.get("update.check").as_deref() != Some("off") {
+        crate::update::cached_newer_tag(db)
+    } else {
+        None
+    };
+    let update_rx = if !args.offline
+        && config.get("update.check").as_deref() != Some("off")
+        && update_notice.is_none()
+        && crate::update::should_background_check(db, now())
+    {
+        let (tx, rx) = mpsc::channel();
+        let bg_paths = paths.clone();
+        let bg_config = Config {
+            values: config.values.clone(),
+        };
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::update::background_check(&bg_paths, &bg_config));
+        });
+        Some(rx)
+    } else {
+        None
+    };
     let mut app = App {
         page: 0,
         rows: Vec::new(),
@@ -206,6 +228,8 @@ pub fn run(
         download_ids: Vec::new(),
         grades: Vec::new(),
         worker: None,
+        update_notice,
+        update_rx,
         colored: !matches!(args.color, Color::Never) && std::env::var_os("NO_COLOR").is_none(),
         legacy_homework: config.get("homework.legacy_http").as_deref() != Some("off"),
         legacy_courseware: config.get("courseware.legacy_http").as_deref() != Some("off"),
@@ -251,6 +275,8 @@ struct App {
     download_ids: Vec<Option<String>>,
     grades: Vec<campus_core::Grade>,
     worker: Option<Receiver<Result<Vec<Value>>>>,
+    update_notice: Option<String>,
+    update_rx: Option<Receiver<Option<String>>>,
     colored: bool,
     legacy_homework: bool,
     legacy_courseware: bool,
@@ -667,6 +693,21 @@ impl App {
                     Err(TryRecvError::Empty) => {}
                 }
             }
+            if let Some(rx) = &self.update_rx {
+                match rx.try_recv() {
+                    Ok(tag) => {
+                        self.update_rx = None;
+                        if let Some(tag) = tag {
+                            self.update_notice = Some(tag);
+                            redraw = true;
+                        }
+                    }
+                    Err(TryRecvError::Disconnected) => {
+                        self.update_rx = None;
+                    }
+                    Err(TryRecvError::Empty) => {}
+                }
+            }
             if redraw {
                 terminal
                     .draw(|frame| self.draw(frame, args.offline))
@@ -837,6 +878,10 @@ impl App {
                 }
                 KeyCode::Char('r') => {
                     self.refresh(args, paths, config, user.as_deref());
+                    None
+                }
+                KeyCode::Char('U') if !args.offline && self.worker.is_none() => {
+                    self.run_update(terminal, db, paths)?;
                     None
                 }
                 _ => None,
@@ -1011,6 +1056,36 @@ impl App {
         Ok(())
     }
 
+    fn run_update(
+        &mut self,
+        terminal: &mut ratatui::DefaultTerminal,
+        db: &Database,
+        paths: &Paths,
+    ) -> Result<()> {
+        ratatui::restore();
+        let outcome = crate::update::interactive_tui_update(db, paths);
+        *terminal = ratatui::try_init()
+            .inspect_err(|_| ratatui::restore())
+            .map_err(storage)?;
+        match outcome {
+            Ok(Some(ref tag)) if tag.is_empty() => {
+                self.status = "已取消更新。".into();
+            }
+            Ok(Some(tag)) => {
+                self.update_notice = None;
+                self.status = format!("更新流程已完成（{tag}）；如已原地替换请重启 campus。");
+            }
+            Ok(None) => {
+                self.update_notice = None;
+                self.status = format!("当前已是最新版本 {}。", env!("CARGO_PKG_VERSION"));
+            }
+            Err(err) => {
+                self.status = crate::output::clean(&err.to_string());
+            }
+        }
+        Ok(())
+    }
+
     fn sync_all(&mut self, paths: &Paths, config: &Config, user: Option<&str>) {
         if self.worker.is_some() {
             return;
@@ -1134,24 +1209,29 @@ impl App {
             Constraint::Length(2),
         ])
         .areas(area);
-        frame.render_widget(
-            Paragraph::new(Line::from(vec![
-                Span::styled(
-                    " ◆ 交大自由行 CLI ",
-                    self.style(BLUE).add_modifier(Modifier::BOLD),
-                ),
-                Span::styled("│", self.style(FAINT)),
-                Span::styled(
-                    if offline {
-                        " 离线模式 "
-                    } else {
-                        " 本地缓存优先 "
-                    },
-                    self.style(if offline { AMBER } else { GREEN }),
-                ),
-            ])),
-            header,
-        );
+        let mut header_spans = vec![
+            Span::styled(
+                " ◆ 交大自由行 CLI ",
+                self.style(BLUE).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled("│", self.style(FAINT)),
+            Span::styled(
+                if offline {
+                    " 离线模式 "
+                } else {
+                    " 本地缓存优先 "
+                },
+                self.style(if offline { AMBER } else { GREEN }),
+            ),
+        ];
+        if let Some(tag) = &self.update_notice {
+            header_spans.push(Span::styled("│", self.style(FAINT)));
+            header_spans.push(Span::styled(
+                format!(" 发现新版 {tag} · 按 U 更新 "),
+                self.style(CYAN).add_modifier(Modifier::BOLD),
+            ));
+        }
+        frame.render_widget(Paragraph::new(Line::from(header_spans)), header);
         if let Some(notice_text) = legacy_notice {
             frame.render_widget(Paragraph::new(notice_text).style(self.style(AMBER)), notice);
         }

@@ -195,6 +195,15 @@ pub enum Command {
         #[arg(value_parser=["bash","zsh","fish"])]
         shell: String,
     },
+    /// 检查或从 GitHub 拉取后续版本更新
+    Update {
+        /// 仅检查是否有新版本，不下载安装
+        #[arg(long)]
+        check: bool,
+        /// 跳过交互确认直接下载安装
+        #[arg(long)]
+        yes: bool,
+    },
 }
 #[cfg(feature = "developer")]
 #[derive(Subcommand, Debug)]

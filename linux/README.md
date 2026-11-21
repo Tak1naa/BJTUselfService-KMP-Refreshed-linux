@@ -131,7 +131,11 @@ campus
 - `Enter` 打开详情弹窗，`Esc` 关闭弹窗（弹窗内也可用方向键上下滚动）
 - `/` 在当前页按关键词实时过滤（`Enter` 锁定筛选，`Esc` 清空）
 - `[` / `]` 在窄屏终端横向滚动周课表或教室网格
-- `r` 后台刷新当前页数据（完成后底栏提示，不卡操作）
+- `l` 启动交互式登录向导（登录完成后自动同步全部页面并刷新显示）
+- `r` 后台刷新当前页数据（在「同步」页按 `r` 同步所有页面，不卡界面）
+- `d` 在「作业」「课件」「物理在线」页下载选中项的附件或文件至本地对应目录
+- `u` 在「作业」页打开交互式上传向导（支持拖入多文件与作答说明，按平台规则覆盖提交）
+- `U` 检查并从 GitHub 拉取后续版本更新（顶栏出现新版提示时也可直接按 `U` 升级）
 - `q` 或 `Ctrl+C` 退出工作台
 
 ---
@@ -230,9 +234,14 @@ campus changes --unseen --mark-seen               # 查看上次同步以来有�
 ```
 - **Linux** 使用用户级 `systemd --user`；**macOS** 使用用户级 `launchd`；**Windows** 请用系统「任务计划程序」定期调用 `campus.exe sync all`。
 
-### 8. 多账号与脚本 JSON 输出
+### 8. 多账号、自更新与脚本 JSON 输出
 
 ```sh
+campus update --check                             # 仅检查 GitHub 是否有新版本
+campus update                                     # 校验 SHA-256 后从 GitHub 拉取更新
+campus update --yes                               # 跳过确认直接拉取更新
+campus config set update.check off                # 关闭 TUI 后台自动检查更新提示
+
 campus auth list                                  # 查看已保存账号
 campus auth switch 另一个学号                     # 切换默认账号
 campus -a 另一个学号 grades --offline             # 单条命令临时切换账号

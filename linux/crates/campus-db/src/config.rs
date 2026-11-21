@@ -19,6 +19,7 @@ const KEYS: &[&str] = &[
     "endpoints.headcount",
     "endpoints.phyvlab",
     "grades.fresh_seconds",
+    "update.check",
 ];
 impl Config {
     pub fn load(path: &Path) -> Result<Self> {
@@ -57,7 +58,7 @@ impl Config {
             "auto_refresh" if !["off", "background", "foreground"].contains(&v) => Err(
                 Error::Usage("auto_refresh: off|background|foreground".into()),
             ),
-            "rooms.live" | "homework.legacy_http" | "courseware.legacy_http"
+            "rooms.live" | "homework.legacy_http" | "courseware.legacy_http" | "update.check"
                 if !["on", "off"].contains(&v) =>
             {
                 Err(Error::Usage(format!("{k}: on|off")))

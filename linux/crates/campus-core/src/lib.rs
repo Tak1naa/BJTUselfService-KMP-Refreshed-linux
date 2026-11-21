@@ -3,6 +3,7 @@ pub mod calendar;
 pub mod capture;
 pub mod parse;
 pub mod phyvlab;
+pub mod update;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
