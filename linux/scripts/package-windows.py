@@ -35,6 +35,7 @@ def main() -> None:
     windows = ROOT / "packaging" / "windows"
     with zipfile.ZipFile(archive, "w", zipfile.ZIP_DEFLATED, compresslevel=9) as package:
         package.write(args.binary, "campus.exe")
+        package.write(windows / "campus.ico", "campus.ico")
         package.write(windows / "campus.ps1", "campus.ps1")
         package.write(windows / "README.txt", "README.txt")
         package.write(ROOT.parent / "LICENSE", "LICENSE")

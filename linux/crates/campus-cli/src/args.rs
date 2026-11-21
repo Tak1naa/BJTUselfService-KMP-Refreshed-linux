@@ -151,13 +151,25 @@ pub enum Command {
         #[arg(long, default_value = "teacher,screen")]
         streams: String,
     },
-    /// 查看作业、详情或下载附件
+    /// 查看作业、详情、下载附件或上传提交
     Homework {
-        #[arg(default_value = "list",value_parser=["list","show","download"])]
+        #[arg(default_value = "list",value_parser=["list","show","download","submit"])]
         action: String,
         id: Option<String>,
         #[arg(short = 'o', long)]
         output: Option<std::path::PathBuf>,
+        /// 同时下载已提交附件（download 时生效）
+        #[arg(long)]
+        submitted: bool,
+        /// 待提交附件路径，可重复指定（submit 时生效）
+        #[arg(long = "file", value_name = "PATH")]
+        files: Vec<std::path::PathBuf>,
+        /// 提交说明正文（submit 时生效）
+        #[arg(long, default_value = "")]
+        content: String,
+        /// 跳过覆盖提交确认（submit 时生效）
+        #[arg(long)]
+        yes: bool,
     },
     /// 查看物理在线课程、作业、下载附件或提交
     Phyvlab {
@@ -209,6 +221,12 @@ pub enum Auth {
         remember: bool,
         #[arg(long)]
         captcha: bool,
+        /// 登录后在 Windows 桌面创建快捷方式
+        #[arg(long, conflicts_with = "no_shortcut")]
+        shortcut: bool,
+        /// 登录后跳过 Windows 桌面快捷方式创建提示
+        #[arg(long)]
+        no_shortcut: bool,
     },
     Logout {
         #[arg(long)]

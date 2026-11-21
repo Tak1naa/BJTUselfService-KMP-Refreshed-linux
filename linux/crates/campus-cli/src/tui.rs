@@ -164,7 +164,7 @@ pub fn interactive() -> bool {
 
 pub fn run(
     args: &Args,
-    db: &Database,
+    db: &mut Database,
     paths: &Paths,
     config: &Config,
     user: Option<&str>,
@@ -180,7 +180,14 @@ pub fn run(
         ));
     }
 
-    let account = user.map(|s| db.account(s)).transpose()?;
+    let mut active_user = user.map(str::to_owned);
+    if active_user.is_none()
+        && !args.offline
+        && let Ok(Some(logged_in)) = crate::interactive_login_wizard(args, db, paths, config)
+    {
+        active_user = Some(logged_in);
+    }
+    let mut account = active_user.as_deref().map(|s| db.account(s)).transpose()?;
     let mut app = App {
         page: 0,
         rows: Vec::new(),
@@ -204,10 +211,24 @@ pub fn run(
         legacy_courseware: config.get("courseware.legacy_http").as_deref() != Some("off"),
     };
     app.load(db, account)?;
+    if !args.offline
+        && let Some(id) = account
+        && crate::needs_initial_sync(db, id)?
+    {
+        app.sync_all(paths, config, active_user.as_deref());
+    }
     let mut terminal = ratatui::try_init()
         .inspect_err(|_| ratatui::restore())
         .map_err(storage)?;
-    let result = app.event_loop(&mut terminal, args, db, paths, config, user, account);
+    let result = app.event_loop(
+        &mut terminal,
+        args,
+        db,
+        paths,
+        config,
+        &mut active_user,
+        &mut account,
+    );
     let restoration = ratatui::try_restore().map_err(storage);
     result.and(restoration).map(|()| 0)
 }
@@ -312,7 +333,7 @@ impl App {
                 }
             }
         } else {
-            self.info = "请先运行 campus auth login 登录。".into();
+            self.info = "未检测到登录账号。按 l 登录，或运行 campus auth login。".into();
             Vec::new()
         };
         if page.dataset == "courses" {
@@ -517,9 +538,39 @@ impl App {
                     .map(|(key, _)| value_for(key, row))
                     .collect();
                 if page.dataset == "homework" {
-                    cells.push(campus_core::parse::homework_text(
+                    let mut extra = Vec::new();
+                    if let Some(items) = row["attachments"].as_array().filter(|a| !a.is_empty()) {
+                        let names = items
+                            .iter()
+                            .filter_map(|a| a["file_name"].as_str())
+                            .collect::<Vec<_>>()
+                            .join("，");
+                        if !names.is_empty() {
+                            extra.push(format!("老师附件  {names}（按 d 下载至 ./homework）"));
+                        }
+                    }
+                    if let Some(items) = row["submitted_attachments"]
+                        .as_array()
+                        .filter(|a| !a.is_empty())
+                    {
+                        let names = items
+                            .iter()
+                            .filter_map(|a| a["file_name"].as_str())
+                            .collect::<Vec<_>>()
+                            .join("，");
+                        if !names.is_empty() {
+                            extra.push(format!("已交附件  {names}"));
+                        }
+                    }
+                    let body = campus_core::parse::homework_text(
                         row["content"].as_str().unwrap_or_default(),
-                    ));
+                    );
+                    if !body.is_empty() {
+                        extra.push(body);
+                    }
+                    cells.push(extra.join("\n\n"));
+                    self.download_ids
+                        .push(campus_core::parse::scalar(&row["id"]));
                 } else if page.dataset == "calendar"
                     && current_week.as_ref().is_some_and(|(term, week)| {
                         row["term"] == term.as_str() && row["week"] == *week
@@ -591,20 +642,21 @@ impl App {
         &mut self,
         terminal: &mut ratatui::DefaultTerminal,
         args: &Args,
-        db: &Database,
+        db: &mut Database,
         paths: &Paths,
         config: &Config,
-        user: Option<&str>,
-        account: Option<i64>,
+        user: &mut Option<String>,
+        account: &mut Option<i64>,
     ) -> Result<()> {
         let mut redraw = true;
+        let mut poll_ticks = 0u8;
         loop {
             if let Some(rx) = &self.worker {
                 match rx.try_recv() {
                     Ok(result) => {
                         self.worker = None;
                         self.status = summarize(result);
-                        self.load(db, account)?;
+                        self.load(db, *account)?;
                         redraw = true;
                     }
                     Err(TryRecvError::Disconnected) => {
@@ -622,6 +674,20 @@ impl App {
                 redraw = false;
             }
             if !event::poll(Duration::from_millis(120)).map_err(storage)? {
+                if !args.offline && account.is_none() {
+                    poll_ticks = poll_ticks.wrapping_add(1);
+                    if poll_ticks.is_multiple_of(8)
+                        && let Some(new_user) = db.pref("", "default_account")?
+                        && let Ok(new_id) = db.account(&new_user)
+                        && db.session(new_id, "school")?.is_some()
+                    {
+                        *user = Some(new_user);
+                        *account = Some(new_id);
+                        self.load(db, *account)?;
+                        self.sync_all(paths, config, user.as_deref());
+                        redraw = true;
+                    }
+                }
                 continue;
             }
             let event = event::read().map_err(storage)?;
@@ -704,8 +770,24 @@ impl App {
                     self.editing = true;
                     None
                 }
-                KeyCode::Char('d') if matches!(self.page().dataset, "courseware" | "phyvlab") => {
-                    self.download(args, paths, config, user);
+                KeyCode::Char('d')
+                    if matches!(self.page().dataset, "homework" | "courseware" | "phyvlab") =>
+                {
+                    self.download(args, paths, config, user.as_deref());
+                    None
+                }
+                KeyCode::Char('l') if !args.offline && self.worker.is_none() => {
+                    ratatui::restore();
+                    let logged = crate::interactive_login_wizard(args, db, paths, config);
+                    *terminal = ratatui::try_init()
+                        .inspect_err(|_| ratatui::restore())
+                        .map_err(storage)?;
+                    if let Ok(Some(new_user)) = logged {
+                        *account = Some(db.account(&new_user)?);
+                        *user = Some(new_user);
+                        self.load(db, *account)?;
+                        self.sync_all(paths, config, user.as_deref());
+                    }
                     None
                 }
                 KeyCode::Char('v') if self.page().dataset == "courses" => {
@@ -742,11 +824,11 @@ impl App {
                 KeyCode::Char(key @ ('b' | 'B' | '+' | '-')) if self.page().dataset == "rooms" => {
                     self.change_room(key);
                     self.status.clear();
-                    self.load(db, account)?;
+                    self.load(db, *account)?;
                     None
                 }
                 KeyCode::Char('r') => {
-                    self.refresh(args, paths, config, user);
+                    self.refresh(args, paths, config, user.as_deref());
                     None
                 }
                 _ => None,
@@ -754,7 +836,7 @@ impl App {
             if let Some(page) = target {
                 self.page = page;
                 self.filter.clear();
-                self.load(db, account)?;
+                self.load(db, *account)?;
             }
         }
     }
@@ -795,11 +877,12 @@ impl App {
                 .and_then(|i| self.download_ids.get(*i))
                 .and_then(Option::as_deref),
         ) else {
-            self.status = if dataset == "phyvlab" {
-                "当前物理在线作业没有可下载的老师附件。".into()
-            } else {
-                "请选择可下载的课件。".into()
-            };
+            self.status = match dataset {
+                "phyvlab" => "当前物理在线作业没有可下载的老师附件。",
+                "homework" => "请选择一项作业下载附件。",
+                _ => "请选择可下载的课件。",
+            }
+            .into();
             return;
         };
         let user = user.to_owned();
@@ -810,11 +893,12 @@ impl App {
         };
         let (tx, rx) = mpsc::channel();
         self.worker = Some(rx);
-        self.status = if dataset == "phyvlab" {
-            "正在下载至 ./phyvlab…".into()
-        } else {
-            "正在下载至 ./courseware…".into()
-        };
+        self.status = match dataset {
+            "phyvlab" => "正在下载至 ./phyvlab…",
+            "homework" => "正在下载至 ./homework…",
+            _ => "正在下载至 ./courseware…",
+        }
+        .into();
         std::thread::spawn(move || {
             let result = (|| {
                 let db = open_database(&paths, &config)?;
@@ -831,6 +915,17 @@ impl App {
                         std::path::Path::new("phyvlab"),
                     )?;
                     Ok(files.as_array().cloned().unwrap_or_else(|| vec![files]))
+                } else if dataset == "homework" {
+                    let files = crate::transfer::homework_download(
+                        &db,
+                        &paths,
+                        &config,
+                        &user,
+                        &id,
+                        std::path::Path::new("homework"),
+                        false,
+                    )?;
+                    Ok(files.as_array().cloned().unwrap_or_else(|| vec![files]))
                 } else {
                     let file = crate::transfer::courseware_download(
                         &db,
@@ -842,6 +937,58 @@ impl App {
                     )?;
                     Ok(vec![file])
                 }
+            })();
+            let _ = tx.send(result);
+        });
+    }
+
+    fn sync_all(&mut self, paths: &Paths, config: &Config, user: Option<&str>) {
+        if self.worker.is_some() {
+            return;
+        }
+        let datasets: Vec<String> = crate::ALL_TUI_DATASETS
+            .iter()
+            .map(|s| (*s).to_owned())
+            .collect();
+        self.spawn_sync(
+            paths,
+            config,
+            user,
+            datasets,
+            BTreeMap::new(),
+            "正在同步全部页面…",
+        );
+    }
+
+    fn spawn_sync(
+        &mut self,
+        paths: &Paths,
+        config: &Config,
+        user: Option<&str>,
+        datasets: Vec<String>,
+        options: BTreeMap<String, String>,
+        label: &str,
+    ) {
+        let (tx, rx) = mpsc::channel();
+        let paths = paths.clone();
+        let config = Config {
+            values: config.values.clone(),
+        };
+        let user = user.map(str::to_owned);
+        self.status = label.into();
+        self.worker = Some(rx);
+        std::thread::spawn(move || {
+            let result = (|| {
+                let mut db = open_database(&paths, &config)?;
+                runtime()?.block_on(campus_sync::sync(
+                    &mut db,
+                    &paths,
+                    &config,
+                    user.as_deref(),
+                    &datasets,
+                    &options,
+                    now(),
+                ))
             })();
             let _ = tx.send(result);
         });
@@ -877,44 +1024,15 @@ impl App {
             ]);
         }
         let datasets = if dataset == "sync" {
-            [
-                "courses",
-                "homework",
-                "grades",
-                "exams",
-                "card",
-                "calendar",
-                "grade_types",
-            ]
-            .into_iter()
-            .map(str::to_owned)
-            .collect::<Vec<_>>()
+            crate::ALL_TUI_DATASETS
+                .iter()
+                .map(|s| (*s).to_owned())
+                .collect::<Vec<_>>()
         } else {
             vec![dataset.into()]
         };
-        let (tx, rx) = mpsc::channel();
-        let paths = paths.clone();
-        let config = Config {
-            values: config.values.clone(),
-        };
-        let user = user.map(str::to_owned);
-        self.status = format!("正在同步 {}…", self.page().title);
-        self.worker = Some(rx);
-        std::thread::spawn(move || {
-            let result = (|| {
-                let mut db = open_database(&paths, &config)?;
-                runtime()?.block_on(campus_sync::sync(
-                    &mut db,
-                    &paths,
-                    &config,
-                    user.as_deref(),
-                    &datasets,
-                    &options,
-                    now(),
-                ))
-            })();
-            let _ = tx.send(result);
-        });
+        let label = format!("正在同步 {}…", self.page().title);
+        self.spawn_sync(paths, config, user, datasets, options, &label);
     }
 
     fn style(&self, color: Ink) -> Style {
@@ -1153,6 +1271,8 @@ impl App {
                 "b/B 楼宇   +/- 周次   [/] 看日期   r 查教室   ↑↓ 选教室"
             }
             .into()
+        } else if page.dataset == "homework" && !offline {
+            "↑↓ 选行   Enter 详情   d 下附件(./homework)   / 筛选   r 同步   q 退出".into()
         } else if page.dataset == "courseware" && !offline {
             "↑↓ 选文件   / 筛选   d 下载至 ./courseware   r 同步   q 退出".into()
         } else if page.dataset == "phyvlab" && !offline {
@@ -1160,7 +1280,7 @@ impl App {
         } else if offline {
             "←→/Tab 切页   ↑↓ 选行   Enter 详情   / 筛选   q 退出".into()
         } else {
-            "←→/Tab 切页   ↑↓ 选行   Enter 详情   / 筛选   r 同步   q 退出".into()
+            "←→/Tab 切页   ↑↓ 选行   Enter 详情   / 筛选   l 登录   r 同步   q 退出".into()
         };
         frame.render_widget(
             Paragraph::new(help)

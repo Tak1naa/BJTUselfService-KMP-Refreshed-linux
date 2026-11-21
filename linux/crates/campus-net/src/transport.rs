@@ -266,7 +266,17 @@ impl Reply {
         String::from_utf8_lossy(&self.bytes).into_owned()
     }
     pub fn data(&self, expected: &Url) -> Result<String> {
-        let text = self.text();
+        self.decode(expected, false)
+    }
+    pub fn data_gbk(&self, expected: &Url) -> Result<String> {
+        self.decode(expected, true)
+    }
+    fn decode(&self, expected: &Url, prefer_gbk: bool) -> Result<String> {
+        let text = if prefer_gbk && std::str::from_utf8(&self.bytes).is_err() {
+            crate::gbk::decode(&self.bytes)
+        } else {
+            self.text()
+        };
         if campus_core::parse::session_expired(self.status, self.url.as_str(), &text) {
             return Err(Error::SessionExpired);
         }
@@ -282,6 +292,7 @@ impl Reply {
 #[derive(Clone, Copy, PartialEq, Eq)]
 pub(crate) enum LegacyScope {
     Homework,
+    HomeworkAction,
     Courseware,
 }
 
@@ -307,7 +318,7 @@ impl SchoolTransport {
     }
     pub(crate) fn new_legacy(&self, scope: LegacyScope) -> Result<Self> {
         let enabled = match scope {
-            LegacyScope::Homework => self.endpoints.legacy_homework,
+            LegacyScope::Homework | LegacyScope::HomeworkAction => self.endpoints.legacy_homework,
             LegacyScope::Courseware => self.endpoints.legacy_courseware,
         };
         if !enabled {
@@ -546,7 +557,13 @@ impl SchoolTransport {
     }
     pub async fn smart_get(&self, url: Url, session: Option<&str>) -> Result<Reply> {
         if let Some(scope) = self.legacy_scope {
-            if !crate::legacy_homework::allows_api(&url, scope == LegacyScope::Courseware) {
+            let allowed = match scope {
+                LegacyScope::HomeworkAction => crate::legacy_homework::allows_homework_action_api(
+                    &self.legacy_policy_url(&url),
+                ),
+                _ => crate::legacy_homework::allows_api(&url, scope == LegacyScope::Courseware),
+            };
+            if !allowed {
                 return Err(Error::SecureChannel);
             }
             let reply = self.once(Method::GET, url, None, false, session).await?;
@@ -570,6 +587,9 @@ impl SchoolTransport {
     pub(crate) fn legacy_courseware(&self) -> bool {
         self.legacy_scope == Some(LegacyScope::Courseware)
     }
+    pub(crate) fn legacy_homework_action(&self) -> bool {
+        self.legacy_scope == Some(LegacyScope::HomeworkAction)
+    }
     fn legacy_policy_url<'a>(&self, url: &'a Url) -> std::borrow::Cow<'a, Url> {
         #[cfg(test)]
         if self.endpoints.test_http && same_origin(url, &self.endpoints.smart) {
@@ -581,8 +601,48 @@ impl SchoolTransport {
         std::borrow::Cow::Borrowed(url)
     }
     pub(crate) fn legacy_download_allowed(&self, url: &Url) -> bool {
-        self.legacy_courseware()
-            && crate::legacy_homework::allows_download(&self.legacy_policy_url(url))
+        let policy = self.legacy_policy_url(url);
+        if self.legacy_courseware() {
+            crate::legacy_homework::allows_download(&policy)
+        } else if self.legacy_homework_action() {
+            crate::legacy_homework::allows_homework_download(&policy)
+        } else {
+            false
+        }
+    }
+    pub(crate) async fn smart_send(
+        &self,
+        url: Url,
+        upload: bool,
+        build: impl FnOnce(&Client, &Url) -> reqwest::RequestBuilder,
+    ) -> Result<Reply> {
+        if let Some(scope) = self.legacy_scope {
+            if scope != LegacyScope::HomeworkAction {
+                return Err(Error::SecureChannel);
+            }
+            let policy = self.legacy_policy_url(&url);
+            let allowed = if upload {
+                crate::legacy_homework::allows_homework_upload(&policy)
+            } else {
+                crate::legacy_homework::allows_homework_submit(&policy)
+            };
+            if !allowed {
+                return Err(Error::SecureChannel);
+            }
+        } else if !self.endpoints.secure(&url)
+            || !same_origin(&url, &self.endpoints.smart)
+            || !url.path().starts_with("/ve/")
+        {
+            return Err(Error::SecureChannel);
+        }
+        let gate = self.gate(&url).await;
+        let _permit = gate.permit.acquire().await.map_err(|_| Error::Network)?;
+        gate.wait().await;
+        let response = build(&self.school, &url)
+            .send()
+            .await
+            .map_err(|_| Error::Network)?;
+        read_reply(url, response).await
     }
     pub async fn smart_post(&self, url: Url, session: &str) -> Result<Reply> {
         if self.legacy_courseware() {
@@ -791,6 +851,123 @@ mod download_tests {
             Url::parse("http://127.0.0.2/ve/download.shtml?userId=1&id=2&p=synthetic&g=synthetic")
                 .unwrap();
         assert!(!transport.legacy_download_allowed(&alien));
+    }
+
+    #[tokio::test]
+    async fn legacy_homework_action_downloads_attachments_and_submits() {
+        let server = MockServer::start().await;
+        Mock::given(method("GET"))
+            .and(path("/ve/back/coursePlatform/homeWork.shtml"))
+            .and(query_param("method", "queryStudentCourseNote"))
+            .and(header("sessionid", "hw-session"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "STATUS": "0",
+                "homeWork": {"content": "<p>实验说明</p>"},
+                "picList": [{"id": 77, "file_name": "guide.pdf", "pic_size": 12, "url": "/guide.pdf"}]
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("GET"))
+            .and(path("/ve/back/coursePlatform/dataSynAction.shtml"))
+            .and(query_param("method", "downLoadPic"))
+            .respond_with(
+                ResponseTemplate::new(200)
+                    .insert_header("Content-Type", "application/pdf")
+                    .set_body_bytes(b"%PDF-teacher".to_vec()),
+            )
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let mut gbk_html = br#"<div class="homeworkContent" onclick="dl('/up/r.pdf', '"#.to_vec();
+        gbk_html.extend_from_slice(b"\xca\xb5\xd1\xe9\xb1\xa8\xb8\xe6.pdf");
+        gbk_html.extend_from_slice(br#"', '55')"></div>"#);
+        Mock::given(method("GET"))
+            .and(path("/ve/back/course/courseWorkInfo.shtml"))
+            .and(query_param("method", "piGaiDiv"))
+            .respond_with(ResponseTemplate::new(200).set_body_bytes(gbk_html))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        Mock::given(method("POST"))
+            .and(path("/ve/back/rp/common/homeworkUpload.shtml"))
+            .and(query_param("noteId", "101"))
+            .and(header("sessionid", "hw-session"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "STATUS": "0",
+                "fileNameNoExt": "report",
+                "fileExtName": "pdf",
+                "fileSize": "5",
+                "visitName": "visit.pdf"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+        Mock::given(method("POST"))
+            .and(path("/ve/back/course/courseWorkInfo.shtml"))
+            .and(query_param("method", "sendStuHomeWorks"))
+            .and(header("sessionid", "hw-session"))
+            .respond_with(ResponseTemplate::new(200).set_body_json(serde_json::json!({
+                "flag": "success"
+            })))
+            .expect(1)
+            .mount(&server)
+            .await;
+
+        let transport = SchoolTransport::build(
+            Endpoints::for_test(&server.uri()),
+            CookieStore::default(),
+            Some(LegacyScope::HomeworkAction),
+        )
+        .unwrap();
+        let context = SmartContext {
+            fetcher: Fetcher {
+                transport: &transport,
+            },
+            session: zeroize::Zeroizing::new("hw-session".into()),
+            courses: vec![serde_json::json!({"id": 10, "teacher_id": 20})],
+        };
+        let detail = context.homework_detail("101", "10").await.unwrap();
+        let (_, attachments) =
+            campus_core::parse::homework_detail(&detail.to_string(), "").unwrap();
+        assert_eq!(attachments.len(), 1);
+        let mut dl_url = transport
+            .endpoints
+            .smart
+            .join("/ve/back/coursePlatform/dataSynAction.shtml")
+            .unwrap();
+        dl_url.query_pairs_mut().extend_pairs([
+            ("method", "downLoadPic"),
+            ("id", "77"),
+            ("noteId", "101"),
+        ]);
+        let dir = tempfile::tempdir().unwrap();
+        let dest = dir.path().join("guide.pdf");
+        transport.download(dl_url, &dest).await.unwrap();
+        assert_eq!(std::fs::read(dest).unwrap(), b"%PDF-teacher");
+
+        let submitted = context
+            .submitted_attachments("101", "55", "", "9")
+            .await
+            .unwrap();
+        assert_eq!(submitted[0].file_name, "实验报告.pdf");
+
+        let hw = serde_json::json!({"id": "101", "course_id": "10", "homework_type": 0});
+        context
+            .submit_homework(&hw, "我的作业说明", &[("report.pdf", b"hello")])
+            .await
+            .unwrap();
+
+        let requests = server.received_requests().await.unwrap();
+        let post_reqs: Vec<_> = requests.iter().filter(|r| r.method == "POST").collect();
+        assert_eq!(post_reqs.len(), 2);
+        assert!(
+            post_reqs
+                .iter()
+                .all(|r| !r.headers.contains_key("x-requested-with"))
+        );
     }
 
     #[test]

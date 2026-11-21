@@ -1,5 +1,5 @@
 Name: campus-bjtu
-Version: 0.1.11
+Version: 0.1.12
 Release: 1%{?dist}
 Summary: 交大自由行 CLI (campus) - Offline-first BJTU campus CLI
 License: MIT
@@ -24,6 +24,9 @@ tar -xzf %{SOURCE0} -C %{buildroot}
 /usr/share/man/man1/campus.1*
 
 %changelog
+* Sat Nov 21 2026 BJTU campus contributors - 0.1.12-1
+- Add homework detail attachment downloads (teacher & submitted), homework upload/submit, first-run login & auto-sync across all tabs, and optional Windows desktop shortcut with icon.
+
 * Fri Nov 20 2026 BJTU campus contributors - 0.1.11-1
 - Sort homework with unsubmitted items first by deadline and dim overdue unsubmitted status in gray.
 

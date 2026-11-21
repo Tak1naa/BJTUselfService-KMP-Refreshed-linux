@@ -390,4 +390,30 @@ fn homework_lists_unsubmitted_first_sorted_by_due_and_dims_overdue() {
     );
     assert!(text.contains("38;2;248;81;73m未提交"));
     assert!(text.contains("38;2;181;206;168m已提交"));
+
+    let mut db = Database::open(&f.temp.path().join("data/campus-portal/campus.db")).unwrap();
+    db.save(
+        id,
+        "homework",
+        &[json!({
+            "id": "u_att",
+            "course_name": "算法",
+            "title": "含附件作业",
+            "end_time": "2099-12-01 23:59",
+            "subStatus": "未提交",
+            "attachments": [{"id": "77", "file_name": "实验指导.pdf", "size_bytes": 1024, "source_path": "/guide.pdf"}],
+            "submitted_attachments": [{"id": "88", "file_name": "我的报告.pdf", "source_path": "/up/r.pdf"}]
+        })],
+        jiff::Timestamp::now().as_second(),
+    )
+    .unwrap();
+    let show = f
+        .cmd()
+        .args(["homework", "show", "u_att", "--offline"])
+        .output()
+        .unwrap();
+    assert!(show.status.success());
+    let show_text = String::from_utf8(show.stdout).unwrap();
+    assert!(show_text.contains("老师附件") && show_text.contains("实验指导.pdf"));
+    assert!(show_text.contains("已交附件") && show_text.contains("我的报告.pdf"));
 }

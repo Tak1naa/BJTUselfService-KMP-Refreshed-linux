@@ -465,7 +465,7 @@ checksum = "776dfebd015e2d8732c684a2c71003674ccb49457b539b9e82151ba38e96dd7c"
 
 [[package]]
 name = "campus-cli"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "anstyle",
  "assert_cmd",
@@ -492,7 +492,7 @@ dependencies = [
 
 [[package]]
 name = "campus-core"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "jiff",
  "proptest",
@@ -506,7 +506,7 @@ dependencies = [
 
 [[package]]
 name = "campus-db"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "argon2",
  "campus-core",
@@ -527,7 +527,7 @@ dependencies = [
 
 [[package]]
 name = "campus-net"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "base64 0.22.1",
  "campus-core",
@@ -556,7 +556,7 @@ dependencies = [
 
 [[package]]
 name = "campus-sync"
-version = "0.1.11"
+version = "0.1.12"
 dependencies = [
  "campus-core",
  "campus-db",

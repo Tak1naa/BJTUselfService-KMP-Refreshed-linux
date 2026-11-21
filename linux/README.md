@@ -26,19 +26,19 @@
 
 - **Ubuntu / Debian / Linux Mint（`.deb`）**：
   ```sh
-  sudo apt install ./campus-bjtu_0.1.11_amd64.deb
+  sudo apt install ./campus-bjtu_0.1.12_amd64.deb
   campus --version
   # 卸载：sudo apt remove campus-bjtu
   ```
 - **Fedora / RHEL / CentOS / AlmaLinux（`.rpm`）**：
   ```sh
-  sudo dnf install ./campus-bjtu-0.1.11-1.*.x86_64.rpm
+  sudo dnf install ./campus-bjtu-0.1.12-1.*.x86_64.rpm
   campus --version
   # 卸载：sudo dnf remove campus-bjtu
   ```
 - **任意 Linux 发行版 / WSL（便携 `.tar.gz`）**：
   ```sh
-  tar -xzf campus-bjtu-0.1.11-linux-x86_64.tar.gz
+  tar -xzf campus-bjtu-0.1.12-linux-x86_64.tar.gz
   sudo install -m 755 ./campus /usr/local/bin/campus
   # 无 root 权限也可安装到用户目录：install -Dm755 ./campus ~/.local/bin/campus
   ```
@@ -50,9 +50,9 @@
 
 > 说明：GitHub Releases 已自动构建并提供 macOS Universal / `arm64` / `x64` `.tar.gz` 归档（由 `macos-latest` CI 编译并跑通全部 Rust 单测；真实 macOS 桌面钥匙串弹窗与 `launchctl` 运行效果待真机实测）。
 
-拿到 `campus-bjtu-0.1.11-macos-universal.tar.gz` 后：
+拿到 `campus-bjtu-0.1.12-macos-universal.tar.gz` 后：
 ```sh
-tar -xzf campus-bjtu-0.1.11-macos-universal.tar.gz
+tar -xzf campus-bjtu-0.1.12-macos-universal.tar.gz
 
 # 若直接下载未经 Apple 公证的二进制，先解除系统隔离标记
 xattr -d com.apple.quarantine ./campus
@@ -65,12 +65,11 @@ campus --version
 
 ### 3. Windows 10 / 11（64 位）
 
-1. 解压 `campus-bjtu-0.1.11-windows-x64.zip` 到固定文件夹（例如 `D:\Tools\campus`）。
-2. 在该文件夹空白处右键 →  **「在终端中打开」** （PowerShell），运行：
-   ```powershell
-   .\campus.exe --version
-   .\campus.exe
-   ```
+1. 解压 `campus-bjtu-0.1.12-windows-x64.zip` 到固定文件夹（例如 `D:\Tools\campus`）。
+2. 直接双击 **`campus.exe`**（或在文件夹空白处右键 → **「在终端中打开」** 运行 `.\campus.exe`）：
+   - 初次未登录时会自动进入**首次登录向导**；
+   - 登录成功后会询问是否在桌面创建 **「交大自由行 CLI」** 快捷方式（含专属终端图标，也可用 `campus auth login --shortcut` / `--no-shortcut` 控制）；
+   - 初次登录完成后会自动同步所有页面并刷新工作台。
 3. （推荐）将 `D:\Tools\campus` 添加到系统环境变量 **`Path`** 后，以后可在任意终端直接输入 `campus` 运行。
 4. 若弹出 Windows SmartScreen「已保护你的电脑」，点击 **「更多信息」 → 「仍要运行」** 。
 
@@ -118,7 +117,7 @@ campus
 | 快捷键 | 页面 | 你能做什么 |
 | --- | --- | --- |
 | `1` | 课表 | 默认列表；按 `v` 切换**周课表网格**，按 `+` / `-` 切教学周，按 `Enter` 看教室与老师详情 |
-| `2` | 作业 | 绿色为已提交、红色为未提交；按 `Enter` 看作业要求 |
+| `2` | 作业 | 未提交置顶并按截止时间排序；绿=已提交、红=未提交、灰=逾期未提交；按 `Enter` 看详情，按 `d` 下载老师附件至 `./homework/` |
 | `3` | 成绩 | 查看各科成绩与学分，底栏实时显示当前筛选范围的**百分制均分与 4.0 GPA** |
 | `4` | 考试 | 查看考试时间、地点与状态 |
 | `5` | 教室 | 按 `b` / `B` 切换教学楼，`+` / `-` 选周次，按 `r` 刷新五色周占用网格 |
@@ -179,12 +178,14 @@ campus rooms grid 11 --week 12 --offline          # 查整栋楼周占用网格
 campus rooms live 本部 --free --min-cap 40        # 查看实时人数估计（可 config set rooms.live off 关闭）
 ```
 
-### 5. 下载课件、作业附件与课堂录像
+### 5. 下载课件、作业附件与提交作业
 
 ```sh
 campus homework list --offline
-campus homework show <作业ID> --offline
+campus homework show <作业ID> --refresh           # 拉取作业正文、老师附件与已交附件清单
 campus homework download <作业ID> -o ./attachments
+campus homework download <作业ID> --submitted -o ./attachments   # 同时下载自己已提交的文件
+campus homework submit <作业ID> --file 报告.pdf --content "实验说明"   # 上传并覆盖提交作业
 
 campus courseware ls --offline                    # 浏览课程列表
 campus courseware ls <课程ID> <文件夹ID> --offline
@@ -247,9 +248,11 @@ campus grades --offline --json                    # 输出稳定 schema: 1 JSON 
    程序不会静默降级明文保存密钥。请手动二选一：`campus config set vault.backend file`（本地加密文件）或 `campus config set vault.backend passphrase`（配合环境变量 `CAMPUS_PORTAL_PASSPHRASE` 使用口令加密）。
 2. **物理在线提示 `phyvlab_profile_incomplete`（需处理）**：  
    表示你的物理在线账号认证已保存成功，但学校网站将首次访问强制跳转到了个人资料修改页（`/user/edit.php`）。用浏览器打开 `https://phyvlab.bjtu.edu.cn/user/edit.php` 补全必填项并保存后，再执行 `campus sync phyvlab` 即可正常拉取作业。
-3. **不想显示终端彩色文字**：  
+3. **为什么部分课件显示「不可下载」？**  
+   课程平台接口返回的 `stu_download` 字段仅在值为 `"2"` 时允许学生下载；其余值表示授课教师将该课件设为仅在线查看、未开放学生下载，因此 CLI 与 TUI 会保留「不可下载」状态并拒绝下载。
+4. **不想显示终端彩色文字**：  
    在任意命令后加 `--color never`，或在环境中设置 `NO_COLOR=1`。
-4. **如何完全退出并清除个人数据 / 卸载？**
+5. **如何完全退出并清除个人数据 / 卸载？**
    - 先注销并删除本地凭据：`campus auth logout --forget`、`campus phyvlab logout --forget`
    - 仅清空业务缓存保留账号：`campus cache clear --yes`
    - 彻底清理本地缓存目录（删除前确认无重要下载文件）：

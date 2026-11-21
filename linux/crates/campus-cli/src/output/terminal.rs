@@ -448,7 +448,10 @@ fn field_label(key: &str) -> &str {
         "grade_text" => "成绩",
         "feedback_text" => "教师评语",
         "submitted_files" => "已交文件",
+        "submitted_attachments" => "已交附件",
         "attachments" => "老师附件",
+        "submitted" => "提交成功",
+        "files" => "文件列表",
         "can_submit" => "可上传草稿",
         "can_finalize" => "可最终提交",
         "is_draft" => "草稿状态",
@@ -522,6 +525,18 @@ fn present(key: &str, value: &Value) -> String {
                 items
                     .iter()
                     .filter_map(Value::as_str)
+                    .map(clean)
+                    .collect::<Vec<_>>()
+                    .join("，")
+            }
+        }
+        (_, Value::Array(items)) if items.iter().all(|v| v.get("file_name").is_some()) => {
+            if items.is_empty() {
+                "—".into()
+            } else {
+                items
+                    .iter()
+                    .filter_map(|v| v["file_name"].as_str())
                     .map(clean)
                     .collect::<Vec<_>>()
                     .join("，")

@@ -1,33 +1,53 @@
-# 🚄 交大自由行KMP (BJTU Self Service KMP Refreshed)
+# 🚄 交大自由行 (BJTU Self Service)
 
-> 北京交通大学校园服务客户端 —— 让校园生活触手可及  
-> 本仓库同时包含 **Kotlin Multiplatform 图形客户端（[`multiplatform/`](multiplatform)）** 与 **Rust 原生终端客户端「交大自由行 CLI」（[`linux/`](linux)）**。
+<p align="center">
+  <img src="docs/images/cli-icon.png" alt="交大自由行 CLI 图标" width="96" />
+</p>
 
-## 🗂️ 仓库结构
+> **北京交通大学非官方跨平台校园服务客户端** —— 无需折腾复杂环境，查课表、追作业、算 GPA、查空教室、看校历、下课件一步到位。  
+> 账号密码、SM2 加密与缓存全部**在本地完成**，不上传至任何第三方服务器。
 
-| 目录 / 文件 | 定位 | 适用场景 |
-| --- | --- | --- |
-| [`multiplatform/`](multiplatform) | **KMP + Compose 图形客户端** | Android / iOS / macOS / Windows 桌面与移动端 App（含小组件、灵动岛、AI 助手） |
-| [`linux/`](linux) | **交大自由行 CLI (`campus`)** | **< 10 MiB 单二进制**、低内存毫秒级离线响应、全屏 10 页 TUI 与脚本自动化（Linux / macOS / Windows） |
-| [`docs/`](docs/README.md) | **总文档索引** | iOS 自签指南、安全审计报告、发版说明与 AI 助手协议 |
-| [`.github/workflows/`](.github/workflows) | **CI/CD 流水线** | KMP 四端打包安全检查、`linux-rust.yml`（Linux musl/DEB/tar.gz & macOS 构建） |
+本仓库同时提供两种形态：
+- 🖥️ **[交大自由行 CLI (`campus`)](linux/README.md)**（推荐给 Windows / macOS / Linux 电脑与终端用户）：单文件绿色运行（Linux 二进制 `< 10 MiB`），支持**双击打开全屏工作台**、首次登录向导与自动同步、桌面快捷方式，也支持命令行极速查表与导出日历。
+- 📱 **[KMP 图形客户端 (`multiplatform/`)](multiplatform)**：Android / iOS / macOS / Windows 图形化 App（含小组件、灵动岛、AI 助手）。
 
-## ⌨️ 交大自由行 CLI（`linux/`，To C 快速上手）
+---
 
-如果你更喜欢轻量终端或需要在服务器 / WSL / 笔记本上极速查课、算分、交物理在线实验，推荐使用 **Rust 重构的「交大自由行 CLI」**（[`linux/README.md`](linux/README.md)）：
+## ⚡ 三分钟上手（普通用户安装教程 · 交大自由行 CLI）
 
-- **小体积 & 低内存**：静态 musl 二进制仅 **9.75 MiB**（`.deb` 约 `3.27 MiB`、`.rpm` 约 `3.51 MiB`），离线查询与工作台启动不加载 Tokio/TLS 运行时，p95 响应 **8.7–15.1 ms**；大课件 4 MiB 分片断点续传。
-- **全屏 TUI 工作台**：终端直接输入 `campus` 进入 10 标签页全屏工作台（课表周历、作业、GPA、考试、五色教室网格、一卡通、校历、课件下载、同步状态、物理在线），按 `r` 后台同步。
-- **五层 Crate 架构重构**：`campus-core` → `campus-db` & `campus-net` → `campus-sync` → `campus-cli`，详细架构与编译见 [`linux/docs/DEVELOPMENT.md`](linux/docs/DEVELOPMENT.md)。
+前往 **[Releases 下载页面](https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/releases)** 下载对应系统的安装包：
 
-**三步开始使用：**
-1. **安装**：从 [Releases](https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/releases)（或 Actions 产物）下载 `.deb` / `.rpm` / `.tar.gz` / `.zip`（详见 [`linux/README.md`](linux/README.md)）：
-   - Debian / Ubuntu：`sudo apt install ./campus-bjtu_0.1.10_amd64.deb`
-   - Fedora / RHEL：`sudo dnf install ./campus-bjtu-0.1.10-1.*.x86_64.rpm`
-   - 通用 Linux / macOS：解压 `.tar.gz` 后放入 `/usr/local/bin/campus`（macOS 首次可执行 `xattr -d com.apple.quarantine ./campus`）
-   - Windows：解压 `.zip` 后在 PowerShell 运行 `.\campus.exe`
-2. **登录并同步**：`campus auth login --user 学号 --remember && campus sync all`（无钥匙串的 SSH 服务器先执行 `campus config set vault.backend file`）
-3. **打开工作台**：直接运行 `campus`（或导出日历 `campus export ics -o bjtu.ics --offline`、查 GPA `campus grades gpa --offline`）
+### 1. Windows 10 / 11（免安装绿色压缩包）
+1. 下载 **`campus-bjtu-0.1.12-windows-x64.zip`** 并解压到固定文件夹（例如 `D:\Tools\campus`）。
+2. **直接双击 `campus.exe`**（若弹出「Windows 已保护你的电脑」，点 **「更多信息」 → 「仍要运行」**）。
+3. 首次打开会自动弹出登录向导：输入学号和 MIS 密码（密码输入时不显示字符属正常保护）→ 选择 **`Y`** 自动在桌面创建「交大自由行 CLI」快捷方式 → **自动同步所有页面数据**并进入全屏界面。以后双击桌面快捷方式即可秒开！
+
+### 2. macOS（Apple Silicon M 系列 / Intel）
+1. 下载 **`campus-bjtu-0.1.12-macos-universal.tar.gz`** 并解压，在终端运行：
+   ```sh
+   xattr -d com.apple.quarantine ./campus
+   sudo install -m 755 ./campus /usr/local/bin/campus
+   campus
+   ```
+2. 首次读取钥匙串点击「始终允许」即可。
+
+### 3. Linux（Ubuntu / Debian / Fedora / 通用发行版）
+- **Ubuntu / Debian / Mint**：`sudo apt install ./campus-bjtu_0.1.12_amd64.deb`
+- **Fedora / RHEL / AlmaLinux**：`sudo dnf install ./campus-bjtu-0.1.12-1.*.x86_64.rpm`
+- **任意 Linux / WSL**：解压 `campus-bjtu-0.1.12-linux-x86_64.tar.gz` 后执行 `install -Dm755 ./campus ~/.local/bin/campus`
+- （无桌面钥匙串的纯 SSH / 服务器环境，首次前先执行 `campus config set vault.backend file`）
+
+<p align="center">
+  <img src="docs/images/cli-terminal-preview.png" alt="交大自由行 CLI 作业与课表预览截图" width="88%" />
+</p>
+
+### 常用功能速览
+- **作业管理**：未提交作业置顶，按截止时间排序，已过截止时间的未提交作业以灰色弱化提示；支持 `campus homework show <ID> --refresh` 看详情、下载老师/已交附件（`campus homework download <ID> [--submitted]` 或在全屏界面按 `d`）以及上传提交作业（`campus homework submit <ID> --file 报告.pdf`）。
+- **课表与日历**：`campus schedule today --offline` 查今日课表，`campus export ics -o bjtu.ics --offline` 一键导入手机/电脑日历。
+- **成绩与均分**：`campus grades gpa --offline` 自动计算学分加权均分与 4.0 制 GPA，支持按学期/课程性质筛选与自选课程试算。
+- **课件下载与物理在线**：TUI 切到对应标签页按 `d` 下载老师已开放的课件或实验附件（部分课件显示「不可下载」是因为老师在教务平台设为仅在线查看，`stu_download != "2"`）。
+
+更多指令与常见问题见 **[CLI 完整使用手册 (`linux/README.md`)](linux/README.md)**；参与开发、运行测试与提交 PR 请看 **[贡献指南 (`CONTRIBUTING.md`)](CONTRIBUTING.md)**，公开维护计划与已知问题跟踪见 **[GitHub Issues](https://github.com/Tak1naa/BJTUselfService-KMP-Refreshed-linux/issues)**。
 
 ---
 

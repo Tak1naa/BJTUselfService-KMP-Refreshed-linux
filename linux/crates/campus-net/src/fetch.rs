@@ -351,21 +351,43 @@ impl Fetcher<'_> {
         &'b self,
         fallback: &'b mut Option<SchoolTransport>,
     ) -> Result<SmartContext<'b>> {
+        self.scoped_smart_context(
+            fallback,
+            self.transport.endpoints.legacy_courseware,
+            crate::transport::LegacyScope::Courseware,
+            true,
+        )
+        .await
+    }
+    pub async fn homework_context<'b>(
+        &'b self,
+        fallback: &'b mut Option<SchoolTransport>,
+    ) -> Result<SmartContext<'b>> {
+        self.scoped_smart_context(
+            fallback,
+            self.transport.endpoints.legacy_homework,
+            crate::transport::LegacyScope::HomeworkAction,
+            false,
+        )
+        .await
+    }
+    async fn scoped_smart_context<'b>(
+        &'b self,
+        fallback: &'b mut Option<SchoolTransport>,
+        allow_legacy: bool,
+        scope: crate::transport::LegacyScope,
+        courseware: bool,
+    ) -> Result<SmartContext<'b>> {
         let secure = async {
             self.smart_handshake().await?;
-            self.smart_session_on(self.transport, true).await
+            self.smart_session_on(self.transport, courseware).await
         };
         match secure.await {
-            Err(error)
-                if self.transport.endpoints.legacy_courseware
-                    && !matches!(error, Error::SessionExpired) =>
-            {
-                let transport = self
-                    .transport
-                    .new_legacy(crate::transport::LegacyScope::Courseware)?;
+            Err(error) if allow_legacy && !matches!(error, Error::SessionExpired) => {
+                let transport = self.transport.new_legacy(scope)?;
                 crate::legacy_homework::handshake(&transport).await?;
                 let transport = fallback.insert(transport);
-                self.smart_session_on(transport, true).await
+                self.smart_session_on(transport, courseware).await
             }
             result => result,
         }
@@ -439,6 +461,7 @@ impl Fetcher<'_> {
                                     | "status"
                                     | "subStatus"
                                     | "snId"
+                                    | "user_id"
                                     | "content"
                                     | "stu_score"
                                     | "homework_type"
@@ -580,6 +603,132 @@ impl SmartContext<'_> {
                 Some(&self.session),
             )
             .await
+    }
+    pub async fn submitted_attachments(
+        &self,
+        id: &str,
+        sn_id: &str,
+        score: &str,
+        user_id: &str,
+    ) -> Result<Vec<parse::SubmittedAttachment>> {
+        let mut url = self
+            .fetcher
+            .transport
+            .endpoints
+            .smart
+            .join("/ve/back/course/courseWorkInfo.shtml")
+            .unwrap();
+        url.query_pairs_mut().extend_pairs([
+            ("method", "piGaiDiv"),
+            ("upId", id),
+            ("id", sn_id),
+            ("score", score),
+            ("uLevel", "1"),
+            ("type", "1"),
+            ("username", "null"),
+            ("userId", user_id),
+        ]);
+        let r = self
+            .fetcher
+            .transport
+            .smart_get(url, Some(&self.session))
+            .await?;
+        let html = r.data_gbk(&self.fetcher.transport.endpoints.smart)?;
+        parse::submitted_attachments(&html)
+    }
+    pub async fn submit_homework(
+        &self,
+        homework: &Value,
+        content: &str,
+        files: &[(&str, &[u8])],
+    ) -> Result<()> {
+        if files.is_empty() {
+            return Err(Error::Usage(
+                "at least one file is required to submit homework".into(),
+            ));
+        }
+        let id = homework
+            .get("id")
+            .and_then(parse::scalar)
+            .ok_or(Error::Malformed("homework ID"))?;
+        let course_id = homework
+            .get("course_id")
+            .and_then(parse::scalar)
+            .ok_or(Error::Malformed("homework course"))?;
+        let homework_type = homework
+            .get("homework_type")
+            .and_then(parse::scalar)
+            .unwrap_or_else(|| "0".into());
+
+        let mut receipts = Vec::with_capacity(files.len());
+        for &(file_name, bytes) in files {
+            let mut url = self
+                .fetcher
+                .transport
+                .endpoints
+                .smart
+                .join("/ve/back/rp/common/homeworkUpload.shtml")
+                .unwrap();
+            url.query_pairs_mut().append_pair("noteId", &id);
+            let session = self.session.clone();
+            let owned_name = file_name.to_owned();
+            let owned_bytes = bytes.to_vec();
+            let reply = self
+                .fetcher
+                .transport
+                .smart_send(url, true, |client, target| {
+                    let part = reqwest::multipart::Part::bytes(owned_bytes)
+                        .file_name(owned_name)
+                        .mime_str("application/octet-stream")
+                        .expect("constant mime");
+                    let form = reqwest::multipart::Form::new().part("file", part);
+                    client
+                        .post(target.clone())
+                        .header("sessionid", session.as_str())
+                        .multipart(form)
+                })
+                .await?;
+            let body = reply.data(&self.fetcher.transport.endpoints.smart)?;
+            receipts.push(parse::homework_upload_receipt(&body)?);
+        }
+
+        let mut submit_url = self
+            .fetcher
+            .transport
+            .endpoints
+            .smart
+            .join("/ve/back/course/courseWorkInfo.shtml")
+            .unwrap();
+        submit_url
+            .query_pairs_mut()
+            .append_pair("method", "sendStuHomeWorks");
+        let file_list = parse::upload_file_list_json(&receipts);
+        let encoded_content = parse::pre_encode_form_value(content);
+        let session = self.session.clone();
+        let reply = self
+            .fetcher
+            .transport
+            .smart_send(submit_url, false, |client, target| {
+                client
+                    .post(target.clone())
+                    .header("sessionid", session.as_str())
+                    .form(&[
+                        ("content", encoded_content.as_str()),
+                        ("groupName", ""),
+                        ("groupId", ""),
+                        ("courseId", course_id.as_str()),
+                        ("contentType", homework_type.as_str()),
+                        ("fz", "0"),
+                        ("jxrl_id", ""),
+                        ("fileList", file_list.as_str()),
+                        ("upId", id.as_str()),
+                        ("return_num", "0"),
+                        ("isTeacher", "0"),
+                    ])
+            })
+            .await?;
+        let body = reply.data(&self.fetcher.transport.endpoints.smart)?;
+        parse::homework_submit_receipt(&body)
     }
     pub async fn resource_ticket(&self, rp_id: &str) -> Result<url::Url> {
         let mut u = self

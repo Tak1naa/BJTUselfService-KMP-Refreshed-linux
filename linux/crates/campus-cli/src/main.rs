@@ -165,7 +165,9 @@ fn run(args: &Args) -> Result<u8> {
     let mut config = Config::load(&paths.config.join("config"))?;
     if !args.offline {
         let dataset_requested = |target| match &args.command {
-            Command::Homework { action, .. } => target == "homework" && action != "download",
+            Command::Homework { action, .. } => {
+                target == "homework" && !matches!(action.as_str(), "download" | "submit")
+            }
             Command::Courseware { action, .. } => {
                 target == "courseware" && matches!(action.as_str(), "ls" | "get")
             }
@@ -234,7 +236,7 @@ fn run(args: &Args) -> Result<u8> {
     let mut db = open_database(&paths, &config)?;
     let user = args.account.clone().or(db.pref("", "default_account")?);
     match &args.command {
-        Command::Tui => tui::run(args, &db, &paths, &config, user.as_deref()),
+        Command::Tui => tui::run(args, &mut db, &paths, &config, user.as_deref()),
         Command::Auth { action } => auth(args, action, &mut db, &paths, &config, user.as_deref()),
         Command::Cache { action, yes } => {
             let data = match action.as_str() {
@@ -480,13 +482,15 @@ fn run(args: &Args) -> Result<u8> {
                 user.as_deref().ok_or(Error::SessionExpired)?,
             )
         }
-        Command::Homework { action, .. } if action == "download" => transfer::run(
-            args,
-            &mut db,
-            &paths,
-            &config,
-            user.as_deref().ok_or(Error::SessionExpired)?,
-        ),
+        Command::Homework { action, .. } if matches!(action.as_str(), "download" | "submit") => {
+            transfer::run(
+                args,
+                &mut db,
+                &paths,
+                &config,
+                user.as_deref().ok_or(Error::SessionExpired)?,
+            )
+        }
         Command::Phyvlab { action } => phyvlab::run(
             args,
             action.as_ref(),
@@ -1006,13 +1010,23 @@ fn read_command(
                 let id = id
                     .as_deref()
                     .ok_or_else(|| Error::Usage("homework show ID".into()))?;
-                rows.into_iter()
-                    .find(|r| {
-                        r.get("id").and_then(campus_core::parse::scalar).as_deref() == Some(id)
-                    })
-                    .ok_or(Error::NoData)?
+                if !args.offline && args.refresh && cfg!(feature = "media") {
+                    transfer::refresh_homework_detail(
+                        db,
+                        paths,
+                        config,
+                        user.ok_or(Error::SessionExpired)?,
+                        id,
+                    )?
+                } else {
+                    rows.into_iter()
+                        .find(|r| {
+                            r.get("id").and_then(campus_core::parse::scalar).as_deref() == Some(id)
+                        })
+                        .ok_or(Error::NoData)?
+                }
             }
-            _ => return Err(Error::Usage("homework list|show|download".into())),
+            _ => return Err(Error::Usage("homework list|show|download|submit".into())),
         },
         _ => return Err(Error::Usage("invalid read command".into())),
     };
@@ -1098,6 +1112,8 @@ fn auth(
             no_remember,
             remember,
             captcha,
+            shortcut,
+            no_shortcut,
         } => {
             if args.offline {
                 return Err(Error::Usage("auth login cannot be offline".into()));
@@ -1161,15 +1177,222 @@ fn auth(
             db.set_pref("", "default_account", Some(user))?;
             let linked = rt.block_on(login.link_academic()).is_ok();
             campus_sync::save_transport(db, &transport, &v, account, now())?;
+            let desktop_shortcut =
+                maybe_create_windows_shortcut(args, paths, *shortcut, *no_shortcut)?;
+            let mut initial_sync = None;
+            if !args.offline
+                && !args.json
+                && io::stdin().is_terminal()
+                && !matches!(args.command, Command::Tui)
+                && needs_initial_sync(db, account)?
+            {
+                if !args.quiet {
+                    eprintln!("检测到首次登录，正在自动同步所有页面数据…");
+                }
+                if let Ok(reports) = rt.block_on(campus_sync::sync(
+                    db,
+                    paths,
+                    config,
+                    Some(user),
+                    &ALL_TUI_DATASETS
+                        .iter()
+                        .map(|s| (*s).to_owned())
+                        .collect::<Vec<_>>(),
+                    &BTreeMap::new(),
+                    now(),
+                )) {
+                    initial_sync = Some(reports);
+                }
+            }
             emit(
                 args,
                 "auth login",
                 Some(user),
-                json!({"authenticated":true,"academic_linked":linked,"password_saved":saved_this_login}),
+                json!({
+                    "authenticated": true,
+                    "academic_linked": linked,
+                    "password_saved": saved_this_login,
+                    "desktop_shortcut": desktop_shortcut,
+                    "initial_sync": initial_sync,
+                }),
             )?;
         }
     }
     Ok(0)
+}
+
+pub(crate) const ALL_TUI_DATASETS: &[&str] = &[
+    "courses",
+    "homework",
+    "grades",
+    "grade_types",
+    "exams",
+    "card",
+    "calendar",
+    "courseware",
+];
+
+pub(crate) fn needs_initial_sync(db: &Database, account: i64) -> Result<bool> {
+    Ok(db
+        .sync_status(account)?
+        .into_iter()
+        .all(|row| row["last_success_at"].is_null()))
+}
+
+pub(crate) fn interactive_login_wizard(
+    args: &Args,
+    db: &mut Database,
+    paths: &Paths,
+    config: &Config,
+) -> Result<Option<String>> {
+    use std::io::Write;
+    if args.offline || !io::stdin().is_terminal() || !io::stdout().is_terminal() {
+        return Ok(None);
+    }
+    eprintln!("未检测到已登录账号（按 Enter 跳过并离线浏览）。");
+    eprint!("MIS 学号: ");
+    io::stderr().flush().map_err(campus_db::storage)?;
+    let mut student_id = String::new();
+    io::stdin()
+        .read_line(&mut student_id)
+        .map_err(campus_db::storage)?;
+    let student_id = student_id.trim().to_owned();
+    if student_id.is_empty() {
+        return Ok(None);
+    }
+    let action = Auth::Login {
+        user: Some(student_id.clone()),
+        password_stdin: false,
+        no_remember: false,
+        remember: true,
+        captcha: false,
+        shortcut: false,
+        no_shortcut: false,
+    };
+    auth(args, &action, db, paths, config, None)?;
+    Ok(Some(student_id))
+}
+
+#[cfg(windows)]
+const WINDOWS_ICON_ICO: &[u8] = include_bytes!("../../../packaging/windows/campus.ico");
+
+fn maybe_create_windows_shortcut(
+    args: &Args,
+    paths: &Paths,
+    explicit_shortcut: bool,
+    no_shortcut: bool,
+) -> Result<Option<String>> {
+    #[cfg(not(windows))]
+    {
+        let _ = (args, paths, no_shortcut);
+        if explicit_shortcut {
+            return Err(Error::Usage(
+                "--shortcut is only supported on Windows".into(),
+            ));
+        }
+        Ok(None)
+    }
+    #[cfg(windows)]
+    {
+        use std::io::Write;
+        if no_shortcut {
+            return Ok(None);
+        }
+        let desktop_out = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-Command",
+                "[Environment]::GetFolderPath('Desktop')",
+            ])
+            .output()
+            .map_err(campus_db::storage)?;
+        if !desktop_out.status.success() {
+            if explicit_shortcut {
+                return Err(Error::Usage(
+                    "failed to locate Windows Desktop folder".into(),
+                ));
+            }
+            return Ok(None);
+        }
+        let desktop = String::from_utf8_lossy(&desktop_out.stdout)
+            .trim()
+            .to_owned();
+        if desktop.is_empty() {
+            return Ok(None);
+        }
+        let link_name = "交大自由行 CLI.lnk";
+        let link_path = std::path::PathBuf::from(&desktop).join(link_name);
+
+        if !explicit_shortcut {
+            if args.json || args.quiet || !io::stdin().is_terminal() || !io::stdout().is_terminal()
+            {
+                return Ok(None);
+            }
+            if link_path.exists() {
+                return Ok(None);
+            }
+            eprint!("是否在桌面创建「交大自由行 CLI」快捷方式？[Y/n]: ");
+            io::stderr().flush().map_err(campus_db::storage)?;
+            let mut answer = String::new();
+            io::stdin()
+                .read_line(&mut answer)
+                .map_err(campus_db::storage)?;
+            let trimmed = answer.trim().to_ascii_lowercase();
+            if !trimmed.is_empty() && !matches!(trimmed.as_str(), "y" | "yes") {
+                return Ok(None);
+            }
+        }
+
+        let exe = std::env::current_exe().map_err(campus_db::storage)?;
+        let exe_icon = exe.with_file_name("campus.ico");
+        let icon_path = if exe_icon.exists() {
+            exe_icon
+        } else if std::fs::write(&exe_icon, WINDOWS_ICON_ICO).is_ok() {
+            exe_icon
+        } else {
+            campus_db::paths::private_dir(&paths.data)?;
+            let fallback_icon = paths.data.join("campus.ico");
+            std::fs::write(&fallback_icon, WINDOWS_ICON_ICO).map_err(campus_db::storage)?;
+            fallback_icon
+        };
+        let workdir = std::env::var_os("USERPROFILE")
+            .map(std::path::PathBuf::from)
+            .or_else(|| exe.parent().map(std::path::Path::to_path_buf))
+            .unwrap_or_else(|| std::path::PathBuf::from("."));
+
+        let status = std::process::Command::new("powershell")
+            .args([
+                "-NoProfile",
+                "-NonInteractive",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "$ws = New-Object -ComObject WScript.Shell; \
+                 $lnk = $ws.CreateShortcut($env:CAMPUS_LNK_PATH); \
+                 $lnk.TargetPath = $env:CAMPUS_LNK_TARGET; \
+                 $lnk.WorkingDirectory = $env:CAMPUS_LNK_WORKDIR; \
+                 $lnk.IconLocation = \"$env:CAMPUS_LNK_ICON,0\"; \
+                 $lnk.Description = '交大自由行 CLI (campus)'; \
+                 $lnk.Save()",
+            ])
+            .env("CAMPUS_LNK_PATH", &link_path)
+            .env("CAMPUS_LNK_TARGET", &exe)
+            .env("CAMPUS_LNK_WORKDIR", &workdir)
+            .env("CAMPUS_LNK_ICON", &icon_path)
+            .status()
+            .map_err(campus_db::storage)?;
+        if !status.success() {
+            return Err(Error::Usage(
+                "failed to create Windows desktop shortcut".into(),
+            ));
+        }
+        let created = link_path.display().to_string();
+        if !args.json && !args.quiet {
+            eprintln!("已创建桌面快捷方式：{created}");
+        }
+        Ok(Some(created))
+    }
 }
 pub(crate) fn read_password_input(password_stdin: bool, prompt: &str) -> Result<Zeroizing<String>> {
     if password_stdin {

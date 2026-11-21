@@ -2,6 +2,14 @@
 
 日期：2026-11-20。分支：`main`（由 `feat/linux-rust-cli` 合入），基于实际 BJTU 仓库。Kotlin Multiplatform 源码保留，可继续使用。
 
+## 0.1.12 作业附件下载与提交、首次登录向导及 Windows 桌面快捷方式
+
+- 新增作业详情刷新（`campus homework show <ID> --refresh`）、老师与已交附件下载（`campus homework download <ID> [--submitted] -o ./homework` 及 TUI `d` 键）以及作业上传提交（`campus homework submit <ID> --file ... [--content ...] [--yes]`），按 KMP 协议对齐双层正文编码、精简 `23 KiB` GBK 查表解码已交附件列表与严格上传/提交回执校验，仅在显式用户传输/提交作用域开放 `HomeworkAction`。
+- 新增首次启动监测与引导：双击/运行 `campus` 且未登录时进入首次登录向导，TUI 亦支持按 `l` 登录或检测其他终端登录成功，首次登录完成后自动同步所有常用页面并刷新界面；`campus auth login` 首次登录无缓存时同样自动完成首轮全量同步。
+- 新增 Windows 登录成功后可选自动创建桌面快捷方式（`交大自由行 CLI.lnk`，含透明圆角多尺寸 `campus.ico` 图标，支持 `--shortcut` / `--no-shortcut`，图标仅在 `#[cfg(windows)]` 嵌入，不增加 Linux 静态二进制体积）。
+- 更新面向普通用户的 To-C 首页 [README.md](../../README.md)、[linux/README.md](../README.md) 与 [CONTRIBUTING.md](../../CONTRIBUTING.md)，附项目截图与常见 FAQ。
+- 83 项工作区测试（含 GBK 查表与作业下载/提交 mock 测试）、`sqlcipher` 7 项测试、`--no-default-features` 编译、Clippy 与格式检查全部通过；静态 musl 二进制体积 `10,446,112` 字节（9.96 MiB），100 次预热 `--version` p95 `2.77 ms`、离线查询 p95 `8.71–15.63 ms`。
+
 ## 0.1.11 作业列表排序与逾期未提交灰显
 
 - 作业列表与 TUI「作业」页改为将 `未提交` 与 `已提交` 分别按截止时间（北京时间）升序排列，并将 `未提交` 置于上方，缺少截止时间的条目置于所属分组末尾。

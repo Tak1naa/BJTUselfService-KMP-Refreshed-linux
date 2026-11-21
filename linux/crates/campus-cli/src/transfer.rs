@@ -34,6 +34,49 @@ pub fn run(
         emit(args, "transfer", Some(user), data)?;
         return Ok(0);
     }
+    if let Command::Homework {
+        action,
+        id,
+        output,
+        submitted,
+        ..
+    } = &args.command
+        && action == "download"
+    {
+        let id = id
+            .as_deref()
+            .ok_or_else(|| Error::Usage("homework download ID".into()))?;
+        let output = output.as_deref().unwrap_or(std::path::Path::new("."));
+        let data = homework_download(db, paths, config, user, id, output, *submitted)?;
+        emit(args, "transfer", Some(user), data)?;
+        return Ok(0);
+    }
+    if let Command::Homework {
+        action,
+        id,
+        files,
+        content,
+        yes,
+        ..
+    } = &args.command
+        && action == "submit"
+    {
+        let id = id
+            .as_deref()
+            .ok_or_else(|| Error::Usage("homework submit ID --file PATH...".into()))?;
+        let data = homework_submit(
+            db,
+            paths,
+            config,
+            user,
+            id,
+            files,
+            content,
+            *yes || args.json,
+        )?;
+        emit(args, "transfer", Some(user), data)?;
+        return Ok(0);
+    }
     let _lock = campus_db::paths::SyncLock::acquire(paths)?;
     let account = db.account(user)?;
     let (transport, vault) = campus_sync::load_transport(db, paths, config, Some(account))?;
@@ -118,45 +161,9 @@ pub fn run(
                         Err(Error::Usage("courseware ls|get|lessons|record".into()))
                     }
                 }
-                Command::Homework { action, id, output } if action == "download" => {
-                    let id = id
-                        .as_deref()
-                        .ok_or_else(|| Error::Usage("homework download ID".into()))?;
-                    let cached = db.rows(account, "homework")?;
-                    let hw = cached
-                        .iter()
-                        .find(|v| v.get("id").and_then(parse::scalar).as_deref() == Some(id))
-                        .ok_or(Error::NoData)?;
-                    let course = hw
-                        .get("course_id")
-                        .and_then(parse::scalar)
-                        .ok_or(Error::Malformed("homework course"))?;
-                    let detail = context.homework_detail(id, &course).await?;
-                    let files = campus_net::fetch::smart_array(&detail, "picList")?;
-                    let dir = output.as_deref().unwrap_or(std::path::Path::new("."));
-                    std::fs::create_dir_all(dir).map_err(campus_db::storage)?;
-                    let mut results = Vec::new();
-                    for f in files {
-                        let attachment = f
-                            .get("id")
-                            .and_then(parse::scalar)
-                            .ok_or(Error::Malformed("attachment ID"))?;
-                        let mut url = transport
-                            .endpoints
-                            .smart
-                            .join("/ve/back/coursePlatform/dataSynAction.shtml")
-                            .unwrap();
-                        url.query_pairs_mut()
-                            .append_pair("method", "downLoadPic")
-                            .append_pair("id", &attachment)
-                            .append_pair("noteId", id);
-                        let path =
-                            dir.join(safe_name(f["file_name"].as_str().unwrap_or(&attachment)));
-                        let bytes = transport.download(url, &path).await?;
-                        results.push(json!({"path":path,"bytes":bytes}));
-                    }
-                    Ok(json!(results))
-                }
+                Command::Homework { action, .. } => Err(Error::Usage(format!(
+                    "unsupported homework transfer action: {action}"
+                ))),
                 _ => Err(Error::Usage("invalid transfer command".into())),
             }
         });
@@ -247,6 +254,294 @@ pub(crate) fn courseware_download(
         let size = session.fetcher.transport.download(url, &path).await?;
         Ok(json!({"path":path,"bytes":size}))
     })
+}
+
+#[cfg(feature = "media")]
+fn unique_dest(
+    dir: &std::path::Path,
+    used: &mut std::collections::BTreeSet<String>,
+    raw_name: &str,
+) -> std::path::PathBuf {
+    let base = safe_name(raw_name);
+    if used.insert(base.clone()) {
+        return dir.join(base);
+    }
+    let (stem, ext) = match base.rsplit_once('.') {
+        Some((s, e)) if !s.is_empty() && !e.is_empty() => (s, Some(e)),
+        _ => (base.as_str(), None),
+    };
+    for idx in 2u32.. {
+        let candidate = match ext {
+            Some(e) => format!("{stem} ({idx}).{e}"),
+            None => format!("{stem} ({idx})"),
+        };
+        if used.insert(candidate.clone()) {
+            return dir.join(candidate);
+        }
+    }
+    unreachable!()
+}
+
+#[cfg(feature = "media")]
+pub(crate) fn refresh_homework_detail(
+    db: &mut Database,
+    paths: &Paths,
+    config: &Config,
+    user: &str,
+    id: &str,
+) -> Result<serde_json::Value> {
+    let _lock = campus_db::paths::SyncLock::acquire(paths)?;
+    let account = db.account(user)?;
+    let (transport, _) = campus_sync::load_transport(db, paths, config, Some(account))?;
+    let mut cached = db.rows(account, "homework")?;
+    let idx = cached
+        .iter()
+        .position(|v| v.get("id").and_then(parse::scalar).as_deref() == Some(id))
+        .ok_or(Error::NoData)?;
+    let course = cached[idx]
+        .get("course_id")
+        .and_then(parse::scalar)
+        .ok_or(Error::Malformed("homework course"))?;
+    let fallback_content = cached[idx]["content"]
+        .as_str()
+        .unwrap_or_default()
+        .to_owned();
+    let sn_id =
+        parse::scalar(&cached[idx]["snId"]).filter(|s| !matches!(s.trim(), "" | "0" | "null"));
+    let score = parse::scalar(&cached[idx]["stu_score"]).unwrap_or_default();
+    let user_id = parse::scalar(&cached[idx]["user_id"]).unwrap_or_else(|| "0".into());
+
+    let (content, attachments, submitted) = runtime()?.block_on(async {
+        let fetcher = campus_net::fetch::Fetcher {
+            transport: &transport,
+        };
+        let mut fallback = None;
+        let context = fetcher.homework_context(&mut fallback).await?;
+        let raw_detail = context.homework_detail(id, &course).await?;
+        let (content, attachments) =
+            parse::homework_detail(&raw_detail.to_string(), &fallback_content)?;
+        let submitted = if let Some(sn_id) = sn_id.as_deref() {
+            context
+                .submitted_attachments(id, sn_id, &score, &user_id)
+                .await
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        Ok::<_, Error>((content, attachments, submitted))
+    })?;
+
+    if let Some(obj) = cached[idx].as_object_mut() {
+        obj.insert("content".into(), json!(content));
+        obj.insert("attachments".into(), json!(attachments));
+        obj.insert("submitted_attachments".into(), json!(submitted));
+    }
+    let updated = cached[idx].clone();
+    db.save(account, "homework", &cached, now())?;
+    Ok(updated)
+}
+
+#[cfg(feature = "media")]
+pub(crate) fn homework_download(
+    db: &Database,
+    paths: &Paths,
+    config: &Config,
+    user: &str,
+    id: &str,
+    dir: &std::path::Path,
+    include_submitted: bool,
+) -> Result<serde_json::Value> {
+    let _lock = campus_db::paths::SyncLock::acquire(paths)?;
+    let account = db.account(user)?;
+    let (transport, _) = campus_sync::load_transport(db, paths, config, Some(account))?;
+    let cached = db.rows(account, "homework")?;
+    let hw = cached
+        .iter()
+        .find(|v| v.get("id").and_then(parse::scalar).as_deref() == Some(id))
+        .ok_or(Error::NoData)?;
+    let course = hw
+        .get("course_id")
+        .and_then(parse::scalar)
+        .ok_or(Error::Malformed("homework course"))?;
+    let sn_id = parse::scalar(&hw["snId"]).filter(|s| !matches!(s.trim(), "" | "0" | "null"));
+    let score = parse::scalar(&hw["stu_score"]).unwrap_or_default();
+    let user_id = parse::scalar(&hw["user_id"]).unwrap_or_else(|| "0".into());
+
+    runtime()?.block_on(async {
+        let fetcher = campus_net::fetch::Fetcher {
+            transport: &transport,
+        };
+        let mut fallback = None;
+        let context = fetcher.homework_context(&mut fallback).await?;
+        let detail = context.homework_detail(id, &course).await?;
+        let (_, teacher_files) = parse::homework_detail(&detail.to_string(), "")?;
+        let submitted_files = if include_submitted && let Some(sn_id) = sn_id.as_deref() {
+            context
+                .submitted_attachments(id, sn_id, &score, &user_id)
+                .await?
+        } else {
+            Vec::new()
+        };
+        if teacher_files.is_empty() && submitted_files.is_empty() {
+            return Err(Error::NoData);
+        }
+        std::fs::create_dir_all(dir).map_err(campus_db::storage)?;
+        let mut used = std::collections::BTreeSet::new();
+        let mut results = Vec::new();
+        for f in teacher_files {
+            let mut url = context
+                .fetcher
+                .transport
+                .endpoints
+                .smart
+                .join("/ve/back/coursePlatform/dataSynAction.shtml")
+                .unwrap();
+            url.query_pairs_mut()
+                .append_pair("method", "downLoadPic")
+                .append_pair("id", &f.id)
+                .append_pair("noteId", id);
+            let path = unique_dest(dir, &mut used, &f.file_name);
+            let bytes = context.fetcher.transport.download(url, &path).await?;
+            results.push(json!({"kind":"teacher","path":path,"bytes":bytes}));
+        }
+        for f in submitted_files {
+            let mut url = context
+                .fetcher
+                .transport
+                .endpoints
+                .smart
+                .join("/ve/downloadZyFj.shtml")
+                .unwrap();
+            url.query_pairs_mut()
+                .append_pair("path", &f.source_path)
+                .append_pair("filename", &f.file_name)
+                .append_pair("id", &f.id);
+            let path = unique_dest(dir, &mut used, &f.file_name);
+            let bytes = context.fetcher.transport.download(url, &path).await?;
+            results.push(json!({"kind":"submitted","path":path,"bytes":bytes}));
+        }
+        Ok(json!(results))
+    })
+}
+
+#[cfg(feature = "media")]
+#[allow(clippy::too_many_arguments)]
+pub(crate) fn homework_submit(
+    db: &mut Database,
+    paths: &Paths,
+    config: &Config,
+    user: &str,
+    id: &str,
+    files: &[std::path::PathBuf],
+    content: &str,
+    skip_prompt: bool,
+) -> Result<serde_json::Value> {
+    if files.is_empty() {
+        return Err(Error::Usage("homework submit ID --file PATH ...".into()));
+    }
+    let mut payloads = Vec::with_capacity(files.len());
+    for file_path in files {
+        let meta = std::fs::metadata(file_path).map_err(campus_db::storage)?;
+        if !meta.is_file() {
+            return Err(Error::Usage(format!(
+                "not a regular file: {}",
+                file_path.display()
+            )));
+        }
+        if meta.len() > 100 * 1024 * 1024 {
+            return Err(Error::Usage(format!(
+                "file exceeds 100 MiB limit: {}",
+                file_path.display()
+            )));
+        }
+        let name = file_path
+            .file_name()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+            .ok_or_else(|| Error::Usage("invalid attachment filename".into()))?
+            .to_owned();
+        let bytes = std::fs::read(file_path).map_err(campus_db::storage)?;
+        payloads.push((name, bytes));
+    }
+
+    let _lock = campus_db::paths::SyncLock::acquire(paths)?;
+    let account = db.account(user)?;
+    let mut cached = db.rows(account, "homework")?;
+    let idx = cached
+        .iter()
+        .position(|v| v.get("id").and_then(parse::scalar).as_deref() == Some(id))
+        .ok_or(Error::NoData)?;
+    let hw = cached[idx].clone();
+
+    if !skip_prompt {
+        use std::io::IsTerminal;
+        if !std::io::stdin().is_terminal() {
+            return Err(Error::Usage(
+                "non-interactive homework submit requires --yes".into(),
+            ));
+        }
+        let title = hw["title"].as_str().unwrap_or(id);
+        eprint!(
+            "确认上传 {} 个文件并覆盖提交作业「{title}」？[y/N]: ",
+            payloads.len()
+        );
+        let mut answer = String::new();
+        std::io::stdin()
+            .read_line(&mut answer)
+            .map_err(campus_db::storage)?;
+        if !matches!(answer.trim().to_ascii_lowercase().as_str(), "y" | "yes") {
+            return Err(Error::Rejected("homework submission cancelled"));
+        }
+    }
+
+    let (transport, _) = campus_sync::load_transport(db, paths, config, Some(account))?;
+    runtime()?.block_on(async {
+        let fetcher = campus_net::fetch::Fetcher {
+            transport: &transport,
+        };
+        let mut fallback = None;
+        let context = fetcher.homework_context(&mut fallback).await?;
+        let refs: Vec<(&str, &[u8])> = payloads
+            .iter()
+            .map(|(name, bytes)| (name.as_str(), bytes.as_slice()))
+            .collect();
+        context.submit_homework(&hw, content, &refs).await
+    })?;
+
+    if let Some(obj) = cached[idx].as_object_mut() {
+        obj.insert("subStatus".into(), json!("已提交"));
+    }
+    db.save(account, "homework", &cached, now())?;
+    let uploaded_names: Vec<&str> = payloads.iter().map(|(n, _)| n.as_str()).collect();
+    Ok(json!({
+        "id": id,
+        "submitted": true,
+        "files": uploaded_names,
+    }))
+}
+
+#[cfg(not(feature = "media"))]
+pub(crate) fn refresh_homework_detail(
+    _db: &mut Database,
+    _paths: &Paths,
+    _config: &Config,
+    _user: &str,
+    _id: &str,
+) -> Result<serde_json::Value> {
+    Err(Error::Usage("this build has media disabled".into()))
+}
+
+#[cfg(not(feature = "media"))]
+pub(crate) fn homework_download(
+    _db: &Database,
+    _paths: &Paths,
+    _config: &Config,
+    _user: &str,
+    _id: &str,
+    _dir: &std::path::Path,
+    _include_submitted: bool,
+) -> Result<serde_json::Value> {
+    Err(Error::Usage("this build has media disabled".into()))
 }
 
 #[cfg(not(feature = "media"))]

@@ -90,6 +90,241 @@ pub fn sort_homework(rows: &mut [Value]) {
     });
 }
 
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HomeworkAttachment {
+    pub id: String,
+    pub file_name: String,
+    pub size_bytes: u64,
+    pub source_path: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SubmittedAttachment {
+    pub id: String,
+    pub file_name: String,
+    pub source_path: String,
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct HomeworkUploadReceipt {
+    pub file_name_no_ext: String,
+    pub file_ext_name: String,
+    pub file_size: String,
+    pub visit_name: String,
+}
+
+fn homework_attachment_name(raw_name: Option<String>, source_path: &str, id: &str) -> String {
+    let base = raw_name
+        .map(|s| s.replace('+', " ").trim().to_owned())
+        .filter(|s| !s.is_empty())
+        .unwrap_or_else(|| format!("附件 {id}"));
+    if base.contains('.') {
+        return base;
+    }
+    let clean_path = source_path.split('?').next().unwrap_or(source_path);
+    let ext = clean_path
+        .rsplit('/')
+        .next()
+        .and_then(|seg| seg.rsplit_once('.').map(|(_, ext)| ext))
+        .filter(|ext| !ext.is_empty() && ext.len() <= 16 && ext.chars().all(char::is_alphanumeric));
+    match ext {
+        Some(ext) => format!("{base}.{ext}"),
+        None => base,
+    }
+}
+
+pub fn homework_detail(
+    body: &str,
+    fallback_content: &str,
+) -> Result<(String, Vec<HomeworkAttachment>)> {
+    let root = json_object(body)?;
+    if let Some(status) = scalar(&root["STATUS"]) {
+        let s = status.trim();
+        if !s.is_empty() && s != "0" && s != "2" {
+            return Err(Error::Malformed("homework detail STATUS"));
+        }
+    }
+    let detail = root["homeWork"]
+        .as_object()
+        .ok_or(Error::Malformed("homework detail object"))?;
+    let pic_list = match &root["picList"] {
+        Value::Array(items) => items.as_slice(),
+        Value::Null => &[],
+        _ => return Err(Error::Malformed("homework picList")),
+    };
+    let mut attachments = Vec::new();
+    for item in pic_list {
+        let Some(id) = item
+            .get("id")
+            .and_then(scalar)
+            .filter(|id| id.trim() != "0" && !id.trim().is_empty())
+        else {
+            continue;
+        };
+        let source_path = scalar(&item["url"]).unwrap_or_default();
+        let file_name = homework_attachment_name(scalar(&item["file_name"]), &source_path, &id);
+        let size_bytes = scalar(&item["pic_size"])
+            .and_then(|s| s.trim().parse::<u64>().ok())
+            .unwrap_or(0);
+        attachments.push(HomeworkAttachment {
+            id,
+            file_name,
+            size_bytes,
+            source_path,
+        });
+    }
+    let content = detail
+        .get("content")
+        .and_then(scalar)
+        .filter(|s| !s.trim().is_empty())
+        .unwrap_or_else(|| fallback_content.to_owned());
+    Ok((content, attachments))
+}
+
+pub fn submitted_attachments(html: &str) -> Result<Vec<SubmittedAttachment>> {
+    if html.contains("系统发生了未处理的异常") {
+        return Err(Error::Malformed("submitted attachments error page"));
+    }
+    let doc = Html::parse_document(html);
+    let onclick_re = Regex::new(r"\('([^']*)',\s*'([^']*)',\s*'([^']*)'\)").unwrap();
+    let mut out = Vec::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for el in doc.select(&sel("div.homeworkContent")) {
+        let Some(onclick) = el.value().attr("onclick") else {
+            continue;
+        };
+        let Some(cap) = onclick_re.captures(onclick) else {
+            continue;
+        };
+        let source_path = cap[1].trim().to_owned();
+        let file_name = cap[2].replace('+', " ").trim().to_owned();
+        let id = cap[3].trim().to_owned();
+        if source_path.is_empty() || file_name.is_empty() || id.is_empty() {
+            continue;
+        }
+        if seen.insert((id.clone(), file_name.clone())) {
+            out.push(SubmittedAttachment {
+                id,
+                file_name,
+                source_path,
+            });
+        }
+    }
+    Ok(out)
+}
+
+fn looks_like_smart_session_expired(text: &str) -> bool {
+    let lower = text.to_lowercase();
+    [
+        "会话结束",
+        "会话失效",
+        "未登录",
+        "登录失效",
+        "登录超时",
+        "重新登录",
+        "请退出系统",
+        "session expired",
+        "session timeout",
+        "not logged",
+    ]
+    .iter()
+    .any(|marker| lower.contains(marker))
+}
+
+pub fn homework_upload_receipt(body: &str) -> Result<HomeworkUploadReceipt> {
+    if looks_like_smart_session_expired(body) {
+        return Err(Error::SessionExpired);
+    }
+    let root = json_object(body).map_err(|_| Error::Malformed("homework upload receipt JSON"))?;
+    let status = scalar(&root["STATUS"]).unwrap_or_default();
+    let name = scalar(&root["fileNameNoExt"]).unwrap_or_default();
+    let ext = scalar(&root["fileExtName"]).unwrap_or_default();
+    let size = scalar(&root["fileSize"]).unwrap_or_default();
+    let visit_name = scalar(&root["visitName"]).unwrap_or_default();
+    if status.trim() != "0"
+        || name.trim().is_empty()
+        || size.trim().is_empty()
+        || visit_name.trim().is_empty()
+    {
+        if let Some(msg) = scalar(&root["MSG"]).filter(|s| !s.trim().is_empty()) {
+            let trimmed = msg.trim();
+            if looks_like_smart_session_expired(trimmed) {
+                return Err(Error::SessionExpired);
+            }
+            return Err(Error::Rejected(match trimmed {
+                m if m.contains("无权限") => "student upload not permitted by server",
+                m if m.contains("类型") => "unsupported homework file type",
+                m if m.contains("大小") || m.contains("过大") => {
+                    "homework file exceeds server size limit"
+                }
+                _ => "homework upload rejected by server",
+            }));
+        }
+        return Err(Error::Malformed("homework upload receipt"));
+    }
+    Ok(HomeworkUploadReceipt {
+        file_name_no_ext: name,
+        file_ext_name: ext,
+        file_size: size,
+        visit_name,
+    })
+}
+
+pub fn homework_submit_receipt(body: &str) -> Result<()> {
+    if looks_like_smart_session_expired(body) {
+        return Err(Error::SessionExpired);
+    }
+    let root = json_object(body).map_err(|_| Error::Malformed("homework submit receipt JSON"))?;
+    let flag = scalar(&root["flag"]).unwrap_or_default();
+    if flag.trim().eq_ignore_ascii_case("success") {
+        return Ok(());
+    }
+    let msg = scalar(&root["msg"])
+        .or_else(|| scalar(&root["message"]))
+        .unwrap_or_default();
+    if !msg.trim().is_empty() {
+        if looks_like_smart_session_expired(&msg) {
+            return Err(Error::SessionExpired);
+        }
+        return Err(Error::Rejected("homework submission rejected by server"));
+    }
+    Err(Error::Malformed("homework submit receipt"))
+}
+
+pub fn upload_file_list_json(receipts: &[HomeworkUploadReceipt]) -> String {
+    let items: Vec<Value> = receipts
+        .iter()
+        .map(|r| {
+            serde_json::json!({
+                "fileNameNoExt": r.file_name_no_ext,
+                "fileExtName": r.file_ext_name,
+                "fileSize": r.file_size,
+                "visitName": r.visit_name,
+                "pid": "",
+                "ftype": "insert",
+            })
+        })
+        .collect();
+    serde_json::to_string(&items).expect("JSON array serialization")
+}
+
+pub fn pre_encode_form_value(s: &str) -> String {
+    const HEX: &[u8; 16] = b"0123456789ABCDEF";
+    let mut out = String::with_capacity(s.len());
+    for &b in s.as_bytes() {
+        if b.is_ascii_alphanumeric() || matches!(b, b'-' | b'_' | b'.' | b'*') {
+            out.push(b as char);
+        } else if b == b' ' {
+            out.push('+');
+        } else {
+            out.push('%');
+            out.push(HEX[(b >> 4) as usize] as char);
+            out.push(HEX[(b & 0x0f) as usize] as char);
+        }
+    }
+    out
+}
+
 pub fn homework_text(raw: &str) -> String {
     let source = raw.replace(r"\<", "<").replace(r"\>", ">");
     let html = Html::parse_fragment(&source);
@@ -829,5 +1064,43 @@ mod tests {
         assert!(!homework_is_overdue(&rows[1], now));
         assert!(!homework_is_overdue(&rows[2], now));
         assert!(!homework_is_overdue(&rows[3], now));
+    }
+
+    #[test]
+    fn homework_detail_submitted_html_and_upload_receipts() {
+        let (content, attachments) = homework_detail(
+            r#"{"STATUS":"0","homeWork":{"content":"<p>请上传实验报告</p>"},"picList":[{"id":0},{"id":12,"file_name":"实验+指导书","pic_size":1024,"url":"/files/guide.pdf"}]}"#,
+            "fallback",
+        )
+        .unwrap();
+        assert!(content.contains("请上传实验报告"));
+        assert_eq!(attachments.len(), 1);
+        assert_eq!(attachments[0].id, "12");
+        assert_eq!(attachments[0].file_name, "实验 指导书.pdf");
+
+        let submitted = submitted_attachments(
+            r#"<div class="homeworkContent" onclick="downLoadZy('upload/a.pdf', '报告+1.pdf', '99')"></div>"#,
+        )
+        .unwrap();
+        assert_eq!(submitted.len(), 1);
+        assert_eq!(submitted[0].id, "99");
+        assert_eq!(submitted[0].file_name, "报告 1.pdf");
+        assert_eq!(submitted[0].source_path, "upload/a.pdf");
+
+        let receipt = homework_upload_receipt(
+            r#"{"STATUS":"0","fileNameNoExt":"report","fileExtName":"pdf","fileSize":"2048","visitName":"v1.pdf"}"#,
+        )
+        .unwrap();
+        let json = upload_file_list_json(&[receipt]);
+        assert!(json.contains(r#""ftype":"insert""#));
+        assert!(homework_submit_receipt(r#"{"flag":"success"}"#).is_ok());
+        assert!(matches!(
+            homework_submit_receipt(r#"{"flag":"bad"}"#),
+            Err(Error::Malformed(_))
+        ));
+        assert_eq!(
+            pre_encode_form_value("A B+中文"),
+            "A+B%2B%E4%B8%AD%E6%96%87"
+        );
     }
 }

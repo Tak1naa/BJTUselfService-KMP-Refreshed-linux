@@ -6,6 +6,7 @@ pub mod phyvlab;
 pub mod transport;
 pub use transport::{Endpoints, SchoolTransport};
 
+mod gbk;
 mod legacy_homework;
 #[cfg(test)]
 mod tests;

@@ -111,6 +111,64 @@ pub(crate) fn allows_download(url: &Url) -> bool {
             .all(|key| url.query_pairs().any(|(k, v)| k == *key && !v.is_empty()))
 }
 
+pub(crate) fn allows_homework_action_api(url: &Url) -> bool {
+    if allows_api(url, false) {
+        return true;
+    }
+    if !is_legacy(url) {
+        return false;
+    }
+    let mut methods = url.query_pairs().filter(|(key, _)| key == "method");
+    let Some((_, method)) = methods.next() else {
+        return false;
+    };
+    methods.next().is_none()
+        && matches!(
+            (url.path(), method.as_ref()),
+            (
+                "/ve/back/coursePlatform/homeWork.shtml",
+                "queryStudentCourseNote"
+            ) | ("/ve/back/course/courseWorkInfo.shtml", "piGaiDiv")
+        )
+}
+
+pub(crate) fn allows_homework_download(url: &Url) -> bool {
+    if !is_legacy(url) {
+        return false;
+    }
+    if url.path() == "/ve/back/coursePlatform/dataSynAction.shtml" {
+        return url
+            .query_pairs()
+            .any(|(k, v)| k == "method" && v == "downLoadPic")
+            && url.query_pairs().any(|(k, v)| k == "id" && !v.is_empty())
+            && url
+                .query_pairs()
+                .any(|(k, v)| k == "noteId" && !v.is_empty());
+    }
+    matches!(
+        url.path(),
+        "/ve/downloadZyFj.shtml" | "/ve//downloadZyFj.shtml"
+    ) && ["path", "filename", "id"]
+        .iter()
+        .all(|key| url.query_pairs().any(|(k, v)| k == *key && !v.is_empty()))
+}
+
+pub(crate) fn allows_homework_upload(url: &Url) -> bool {
+    is_legacy(url)
+        && url.path() == "/ve/back/rp/common/homeworkUpload.shtml"
+        && url
+            .query_pairs()
+            .any(|(k, v)| k == "noteId" && !v.is_empty())
+}
+
+pub(crate) fn allows_homework_submit(url: &Url) -> bool {
+    is_legacy(url)
+        && url.path() == "/ve/back/course/courseWorkInfo.shtml"
+        && url
+            .query_pairs()
+            .any(|(k, v)| k == "method" && v == "sendStuHomeWorks")
+}
+
 fn next_target(base: &Url, location: &str) -> Result<Url> {
     if location.trim().is_empty() || location.chars().any(char::is_control) {
         return Err(Error::SecureChannel);

@@ -124,7 +124,7 @@ impl SchoolTransport {
     }
     /// Range checkpoints store an ETag and the URL, so a different resource cannot append to old data.
     pub async fn download(&self, url: Url, path: &Path) -> Result<u64> {
-        let allowed = if self.legacy_courseware() {
+        let allowed = if self.is_legacy() {
             self.legacy_download_allowed(&url)
         } else {
             self.media_allowed(&url)
@@ -188,7 +188,7 @@ impl SchoolTransport {
                 }
             }
             let status = response.status();
-            if self.legacy_courseware()
+            if self.is_legacy()
                 && response
                     .headers()
                     .get(reqwest::header::CONTENT_TYPE)
