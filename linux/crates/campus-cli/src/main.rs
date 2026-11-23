@@ -315,11 +315,14 @@ fn run(args: &Args) -> Result<u8> {
                     let ds = if d == "all" {
                         vec![
                             "courses",
+                            "homework",
                             "grades",
                             "grade_types",
                             "exams",
+                            "mail",
                             "card",
                             "calendar",
+                            "courseware",
                         ]
                         .into_iter()
                         .map(str::to_owned)
@@ -1333,6 +1336,80 @@ pub(crate) fn interactive_login_wizard(
 #[cfg(windows)]
 const WINDOWS_ICON_ICO: &[u8] = include_bytes!("../../../packaging/windows/campus.ico");
 
+#[cfg(any(windows, test))]
+fn windows_desktop_vbs() -> &'static str {
+    "WScript.Echo CreateObject(\"WScript.Shell\").SpecialFolders(\"Desktop\")\r\n"
+}
+
+#[cfg(any(windows, test))]
+fn windows_shortcut_vbs() -> &'static str {
+    concat!(
+        "Set ws = CreateObject(\"WScript.Shell\")\r\n",
+        "Set env = ws.Environment(\"PROCESS\")\r\n",
+        "Set lnk = ws.CreateShortcut(env(\"CAMPUS_LNK_PATH\"))\r\n",
+        "lnk.TargetPath = env(\"CAMPUS_LNK_TARGET\")\r\n",
+        "lnk.WorkingDirectory = env(\"CAMPUS_LNK_WORKDIR\")\r\n",
+        "lnk.IconLocation = env(\"CAMPUS_LNK_ICON\") & \",0\"\r\n",
+        "lnk.Description = env(\"CAMPUS_LNK_DESC\")\r\n",
+        "lnk.Save\r\n",
+    )
+}
+
+#[cfg(windows)]
+fn run_cscript(
+    cache_dir: &std::path::Path,
+    name: &str,
+    script: &str,
+    envs: &[(&str, &std::ffi::OsStr)],
+) -> Option<std::process::Output> {
+    if campus_db::paths::private_dir(cache_dir).is_err() {
+        return None;
+    }
+    let script_path = cache_dir.join(name);
+    if std::fs::write(&script_path, script.as_bytes()).is_err() {
+        return None;
+    }
+    let mut cmd = std::process::Command::new("cscript");
+    cmd.args(["//Nologo", "//B"]).arg(&script_path);
+    for (k, v) in envs {
+        cmd.env(k, v);
+    }
+    let output = cmd.output().ok();
+    let _ = std::fs::remove_file(&script_path);
+    output
+}
+
+#[cfg(windows)]
+fn resolve_windows_desktop(cache_dir: &std::path::Path) -> Option<String> {
+    if let Ok(out) = std::process::Command::new("powershell")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "[Environment]::GetFolderPath('Desktop')",
+        ])
+        .output()
+        && out.status.success()
+    {
+        let desktop = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        if !desktop.is_empty() {
+            return Some(desktop);
+        }
+    }
+    if let Some(out) = run_cscript(cache_dir, "campus-desktop.vbs", windows_desktop_vbs(), &[])
+        && out.status.success()
+    {
+        let desktop = String::from_utf8_lossy(&out.stdout).trim().to_owned();
+        if !desktop.is_empty() {
+            return Some(desktop);
+        }
+    }
+    std::env::var_os("USERPROFILE")
+        .map(|home| std::path::PathBuf::from(home).join("Desktop"))
+        .filter(|path| path.is_dir())
+        .map(|path| path.display().to_string())
+}
+
 fn maybe_create_windows_shortcut(
     args: &Args,
     paths: &Paths,
@@ -1355,29 +1432,14 @@ fn maybe_create_windows_shortcut(
         if no_shortcut {
             return Ok(None);
         }
-        let desktop_out = std::process::Command::new("powershell")
-            .args([
-                "-NoProfile",
-                "-NonInteractive",
-                "-Command",
-                "[Environment]::GetFolderPath('Desktop')",
-            ])
-            .output()
-            .map_err(campus_db::storage)?;
-        if !desktop_out.status.success() {
+        let Some(desktop) = resolve_windows_desktop(&paths.cache) else {
             if explicit_shortcut {
                 return Err(Error::Usage(
                     "failed to locate Windows Desktop folder".into(),
                 ));
             }
             return Ok(None);
-        }
-        let desktop = String::from_utf8_lossy(&desktop_out.stdout)
-            .trim()
-            .to_owned();
-        if desktop.is_empty() {
-            return Ok(None);
-        }
+        };
         let link_name = "交大自由行 CLI.lnk";
         let link_path = std::path::PathBuf::from(&desktop).join(link_name);
 
@@ -1417,7 +1479,7 @@ fn maybe_create_windows_shortcut(
             .or_else(|| exe.parent().map(std::path::Path::to_path_buf))
             .unwrap_or_else(|| std::path::PathBuf::from("."));
 
-        let status = std::process::Command::new("powershell")
+        let ps_ok = std::process::Command::new("powershell")
             .args([
                 "-NoProfile",
                 "-NonInteractive",
@@ -1437,8 +1499,25 @@ fn maybe_create_windows_shortcut(
             .env("CAMPUS_LNK_WORKDIR", &workdir)
             .env("CAMPUS_LNK_ICON", &icon_path)
             .status()
-            .map_err(campus_db::storage)?;
-        if !status.success() {
+            .is_ok_and(|s| s.success());
+        if !ps_ok || !link_path.is_file() {
+            let _ = run_cscript(
+                &paths.cache,
+                "campus-shortcut.vbs",
+                windows_shortcut_vbs(),
+                &[
+                    ("CAMPUS_LNK_PATH", link_path.as_os_str()),
+                    ("CAMPUS_LNK_TARGET", exe.as_os_str()),
+                    ("CAMPUS_LNK_WORKDIR", workdir.as_os_str()),
+                    ("CAMPUS_LNK_ICON", icon_path.as_os_str()),
+                    (
+                        "CAMPUS_LNK_DESC",
+                        std::ffi::OsStr::new("交大自由行 CLI (campus)"),
+                    ),
+                ],
+            );
+        }
+        if !link_path.is_file() {
             return Err(Error::Usage(
                 "failed to create Windows desktop shortcut".into(),
             ));
@@ -1636,4 +1715,27 @@ fn matches_course_type(g: &campus_core::Grade, types: &[Value], kind: &str) -> b
                 && v["course_type"] == kind
         })
     })
+}
+
+#[cfg(test)]
+mod shortcut_tests {
+    use super::{windows_desktop_vbs, windows_shortcut_vbs};
+
+    #[test]
+    fn windows_shortcut_vbs_reads_process_env_safely() {
+        let desktop = windows_desktop_vbs();
+        assert!(desktop.contains("SpecialFolders(\"Desktop\")"));
+        let vbs = windows_shortcut_vbs();
+        assert!(vbs.is_ascii());
+        for key in [
+            "CAMPUS_LNK_PATH",
+            "CAMPUS_LNK_TARGET",
+            "CAMPUS_LNK_WORKDIR",
+            "CAMPUS_LNK_ICON",
+            "CAMPUS_LNK_DESC",
+        ] {
+            assert!(vbs.contains(key));
+        }
+        assert!(vbs.contains("Environment(\"PROCESS\")"));
+    }
 }

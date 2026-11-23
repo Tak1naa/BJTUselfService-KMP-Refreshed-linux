@@ -142,6 +142,7 @@ const PAGES: &[Page] = &[
         fields: &[
             ("dataset", "数据"),
             ("status", "状态"),
+            ("last_attempt_at", "最近尝试"),
             ("last_success_at", "最近成功"),
             ("reason", "原因"),
         ],
@@ -1661,7 +1662,10 @@ fn value_for(key: &str, row: &Value) -> String {
         }
         "week" => format!("第 {} 周", crate::output::cell(&row[key])),
         "file_count" => row["nodes"].as_array().map_or(0, Vec::len).to_string(),
-        "last_success_at" => row[key].as_i64().map(time_label).unwrap_or_default(),
+        "last_attempt_at" | "last_success_at" => row[key]
+            .as_i64()
+            .map(time_label)
+            .unwrap_or_else(|| "—".into()),
         "reason" => row[key].as_str().map(sync_reason).unwrap_or_default(),
         "status" => match row[key].as_str() {
             Some("success") => "成功".into(),

@@ -388,9 +388,9 @@ impl SchoolTransport {
             .build()
             .map_err(|_| Error::Network)?;
         let public = builder()
-            .connect_timeout(Duration::from_secs(5))
-            .read_timeout(Duration::from_secs(8))
-            .timeout(Duration::from_secs(8))
+            .connect_timeout(Duration::from_secs(10))
+            .read_timeout(Duration::from_secs(15))
+            .timeout(Duration::from_secs(15))
             .build()
             .map_err(|_| Error::Network)?;
         Ok(Self {
@@ -469,6 +469,7 @@ impl SchoolTransport {
         let gate = self.gate(&url).await;
         let _permit = gate.permit.acquire().await.map_err(|_| Error::Network)?;
         let mut attempt = 0;
+        let mut transport_retried = false;
         loop {
             gate.wait().await;
             let client = if public { &self.public } else { &self.school };
@@ -499,7 +500,15 @@ impl SchoolTransport {
             if let Some(fields) = form {
                 req = req.form(fields);
             }
-            let response = req.send().await.map_err(|_| Error::Network)?;
+            let response = match req.send().await {
+                Ok(response) => response,
+                Err(_) if method == Method::GET && form.is_none() && !transport_retried => {
+                    transport_retried = true;
+                    tokio::time::sleep(Duration::from_millis(300)).await;
+                    continue;
+                }
+                Err(_) => return Err(Error::Network),
+            };
             let status = response.status().as_u16();
             if status == 503 && method == Method::GET && gate.retry && attempt < 3 {
                 drop(response);

@@ -255,10 +255,18 @@ pub fn error(args: &Args, error: &Error) {
         {
             "重新登录后再试：campus auth login".into()
         }
+        (Error::CacheUnavailable(reason), "homework" | "courseware" | "phyvlab")
+            if reason == "network" =>
+        {
+            "请确认已连接校园网或校外 BJTU VPN，且代理未拦截校内直连；也可用 campus sync status 查看详情。".into()
+        }
+        (Error::Network, "homework" | "courseware" | "phyvlab") => {
+            "请确认已连接校园网或校外 BJTU VPN，且代理未拦截校内直连后重试。".into()
+        }
         (
             Error::NoData | Error::CacheUnavailable(_),
             "homework" | "courseware" | "phyvlab" | "schedule" | "grades" | "exams" | "card"
-            | "calendar",
+            | "calendar" | "mail",
         ) => {
             format!("获取最新数据：campus {name} --refresh")
         }

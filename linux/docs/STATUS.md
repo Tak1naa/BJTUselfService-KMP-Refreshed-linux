@@ -2,6 +2,13 @@
 
 日期：2026-11-22。分支：`main`，已将上游 Kotlin Multiplatform 源码归档至只读 Git 标签 `archive/kmp-upstream`，主线专精 Rust 跨平台 CLI/TUI（`1.0.0` 首个正式版）。
 
+## 1.0.1 C 端稳定性、同步观测完善与 Wine 快捷方式兼容修复
+
+- **Wine 与受限 Windows 桌面快捷方式回退**：使用 Wine 实测发布包 `campus.exe` 时发现其内置 `powershell.exe` 桩退出 0 但不创建 `.lnk`；现已在 `maybe_create_windows_shortcut` 中增加 `cscript.exe`（`WScript.Shell`）回退，用于桌面路径定位与快捷方式生成（通过进程 UTF-16 环境变量传参避免中文路径或 Description 乱码，并在 Wine 环境实测通过）。
+- **网络超时与瞬断容错**：将 `public` 客户端（校历 / 教室人数）连接与总超时由 `5s / 8s` 放宽至 `10s / 15s`，并在 `SchoolTransport::request` 中为幂等 `Method::GET` 增加 1 次 `300 ms` 退避的传输层瞬断重试（`POST` 表单与提交绝不重放）；同时为作业/课件/物理在线的 `network` 报错补充校园网 / BJTU VPN / 代理引导。
+- **同步页时间可视化与默认列表统一**：TUI「同步」页同时展示「最近尝试」（`last_attempt_at`）与「最近成功」（`last_success_at`），避免失败后仍仅见旧成功时间产生误解；CLI `campus sync` 默认同步列表补齐 `mail`、`homework`、`courseware`。
+- **更新器对齐新仓库**：将 [update.rs](../crates/campus-core/src/update.rs) 内置 Release API URL 随 `1.0.1` 一并发布为 `Tak1naa/BJTUselfService-Lite`。
+
 ## 1.0.0 首个正式版：邮箱代收、作业附件提交与下载、自更新及交互完善
 
 - 仓库结构整理与版本毕业：保留 MIT 上游版权与 [README.md](../../README.md) 致谢，将原 Kotlin Multiplatform 代码及历史对照脚本冻结保存在 `archive/kmp-upstream` 标签并从 `main` 移除，版本号由 `0.1.x` 正式毕业至 `1.0.0`。

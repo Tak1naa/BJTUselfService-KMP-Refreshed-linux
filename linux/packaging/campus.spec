@@ -1,5 +1,5 @@
 Name: campus-bjtu
-Version: 1.0.0
+Version: 1.0.1
 Release: 1%{?dist}
 Summary: 交大自由行 CLI (campus) - Offline-first BJTU campus CLI
 License: MIT
@@ -24,6 +24,9 @@ tar -xzf %{SOURCE0} -C %{buildroot}
 /usr/share/man/man1/campus.1*
 
 %changelog
+* Mon Nov 23 2026 BJTU campus contributors - 1.0.1-1
+- Add Wine/restricted-Windows cscript shortcut fallback, widen public timeout + single GET transient retry, show last_attempt_at on sync tab, and align default CLI sync datasets
+
 * Sun Nov 22 2026 BJTU campus contributors - 1.0.0-1
 - Graduate to 1.0.0 first official CLI release (mail inbox/attachments, Downloads default, friendly Chinese errors)
 

@@ -280,6 +280,34 @@ async fn only_get_retries_503_with_bounded_backoff() {
 }
 
 #[tokio::test]
+async fn only_get_retries_transient_transport_error_once() {
+    let server = MockServer::start().await;
+    Mock::given(method("GET"))
+        .and(path("/flaky"))
+        .respond_with_err(|_: &wiremock::Request| {
+            std::io::Error::from(std::io::ErrorKind::ConnectionReset)
+        })
+        .up_to_n_times(1)
+        .expect(1)
+        .mount(&server)
+        .await;
+    Mock::given(method("GET"))
+        .and(path("/flaky"))
+        .respond_with(ResponseTemplate::new(200).set_body_string("ok"))
+        .expect(1)
+        .mount(&server)
+        .await;
+    let t = SchoolTransport::new(Endpoints::for_test(&server.uri()), None).unwrap();
+    let reply = t
+        .get(format!("{}/flaky", server.uri()).parse().unwrap())
+        .await
+        .unwrap();
+    assert_eq!(reply.status, 200);
+    assert_eq!(reply.text(), "ok");
+    server.verify().await;
+}
+
+#[tokio::test]
 async fn ambiguous_password_transport_failure_is_not_replayed() {
     let server = MockServer::start().await;
     Mock::given(method("POST"))

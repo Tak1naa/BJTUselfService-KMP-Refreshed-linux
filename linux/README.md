@@ -25,19 +25,19 @@
 
 - **Ubuntu / Debian / Linux Mint（`.deb`）**：
   ```sh
-  sudo apt install ./campus-bjtu_1.0.0_amd64.deb
+  sudo apt install ./campus-bjtu_1.0.1_amd64.deb
   campus --version
   # 卸载：sudo apt remove campus-bjtu
   ```
 - **Fedora / RHEL / CentOS / AlmaLinux（`.rpm`）**：
   ```sh
-  sudo dnf install ./campus-bjtu-1.0.0-1.*.x86_64.rpm
+  sudo dnf install ./campus-bjtu-1.0.1-1.*.x86_64.rpm
   campus --version
   # 卸载：sudo dnf remove campus-bjtu
   ```
 - **任意 Linux 发行版 / WSL（便携 `.tar.gz`）**：
   ```sh
-  tar -xzf campus-bjtu-1.0.0-linux-x86_64.tar.gz
+  tar -xzf campus-bjtu-1.0.1-linux-x86_64.tar.gz
   sudo install -m 755 ./campus /usr/local/bin/campus
   # 无 root 权限也可安装到用户目录：install -Dm755 ./campus ~/.local/bin/campus
   ```
@@ -49,9 +49,9 @@
 
 > 说明：GitHub Releases 已自动构建并提供 macOS Universal / `arm64` / `x64` `.tar.gz` 归档（由 `macos-latest` CI 编译并跑通全部 Rust 单测；真实 macOS 桌面钥匙串弹窗与 `launchctl` 运行效果待真机实测）。
 
-拿到 `campus-bjtu-1.0.0-macos-universal.tar.gz` 后：
+拿到 `campus-bjtu-1.0.1-macos-universal.tar.gz` 后：
 ```sh
-tar -xzf campus-bjtu-1.0.0-macos-universal.tar.gz
+tar -xzf campus-bjtu-1.0.1-macos-universal.tar.gz
 
 # 若直接下载未经 Apple 公证的二进制，先解除系统隔离标记
 xattr -d com.apple.quarantine ./campus
@@ -64,7 +64,7 @@ campus --version
 
 ### 3. Windows 10 / 11（64 位）
 
-1. 解压 `campus-bjtu-1.0.0-windows-x64.zip` 到固定文件夹（例如 `D:\Tools\campus`）。
+1. 解压 `campus-bjtu-1.0.1-windows-x64.zip` 到固定文件夹（例如 `D:\Tools\campus`）。
 2. 直接双击 **`campus.exe`**（或在文件夹空白处右键 → **「在终端中打开」** 运行 `.\campus.exe`）：
    - 初次未登录时会自动进入**首次登录向导**；
    - 登录成功后会询问是否在桌面创建 **「交大自由行 CLI」** 快捷方式（含专属终端图标，也可用 `campus auth login --shortcut` / `--no-shortcut` 控制）；
