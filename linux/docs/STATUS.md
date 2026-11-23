@@ -8,6 +8,7 @@
 - **网络超时与瞬断容错**：将 `public` 客户端（校历 / 教室人数）连接与总超时由 `5s / 8s` 放宽至 `10s / 15s`，并在 `SchoolTransport::request` 中为幂等 `Method::GET` 增加 1 次 `300 ms` 退避的传输层瞬断重试（`POST` 表单与提交绝不重放）；同时为作业/课件/物理在线的 `network` 报错补充校园网 / BJTU VPN / 代理引导。
 - **同步页时间可视化与默认列表统一**：TUI「同步」页同时展示「最近尝试」（`last_attempt_at`）与「最近成功」（`last_success_at`），避免失败后仍仅见旧成功时间产生误解；CLI `campus sync` 默认同步列表补齐 `mail`、`homework`、`courseware`。
 - **更新器对齐新仓库**：将 [update.rs](../crates/campus-core/src/update.rs) 内置 Release API URL 随 `1.0.1` 一并发布为 `Tak1naa/BJTUselfService-Lite`。
+- **依赖安全升级**：将 `linux/Cargo.lock` 与 `linux/fuzz/Cargo.lock` 中的 `url` 由 `2.5.8` 升级至 `2.5.9`（修复 `RUSTSEC-2026-0592`）。
 
 ## 1.0.0 首个正式版：邮箱代收、作业附件提交与下载、自更新及交互完善
 
