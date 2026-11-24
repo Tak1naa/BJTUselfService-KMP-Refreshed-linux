@@ -6,6 +6,7 @@
 
 - **修复 Windows 自更新必现报错**：定位到旧版 `std::fs::canonicalize` 返回 `\\?\` 逐字路径导致 Windows PowerShell 5.1 `Expand-Archive`（`Microsoft.PowerShell.Archive.psm1`）报错「参数“drive”的值为空」；现已在 [campus-net/src/update.rs](../crates/campus-net/src/update.rs) 中复用 `flate2` 实现纯 Rust 内存 ZIP 解压与 CRC-32 校验（`extract_zip_binary`，零新增依赖），并在 [campus-cli/src/update.rs](../crates/campus-cli/src/update.rs) 增加 `normalize_exe_path` 剥除 `\\?\X:\` 前缀。
 - **修正更新安装包报错文案**：将 [terminal.rs](../crates/campus-cli/src/output/terminal.rs) 中更新归档异常与系统接口异常分开提示，不再误导用户重新登录。
+- **依赖安全升级**：将 `linux/Cargo.lock` 与 `linux/fuzz/Cargo.lock` 中的 `cookie` 由 `0.18.2` 升级至 `0.18.3`（修复 `RUSTSEC-2026-0594`）。
 
 ## 1.0.1 C 端稳定性、同步观测完善与 Wine 快捷方式兼容修复
 
