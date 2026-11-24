@@ -1,5 +1,5 @@
 Name: campus-bjtu
-Version: 1.0.1
+Version: 1.0.2
 Release: 1%{?dist}
 Summary: 交大自由行 CLI (campus) - Offline-first BJTU campus CLI
 License: MIT
@@ -24,6 +24,9 @@ tar -xzf %{SOURCE0} -C %{buildroot}
 /usr/share/man/man1/campus.1*
 
 %changelog
+* Tue Nov 24 2026 BJTU campus contributors - 1.0.2-1
+- Replace PowerShell Expand-Archive with pure-Rust in-memory ZIP extraction, strip Windows verbatim \\?\ prefix on self-update path, and fix update archive error guidance
+
 * Mon Nov 23 2026 BJTU campus contributors - 1.0.1-1
 - Add Wine/restricted-Windows cscript shortcut fallback, widen public timeout + single GET transient retry, show last_attempt_at on sync tab, and align default CLI sync datasets
 

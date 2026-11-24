@@ -177,6 +177,13 @@ pub(crate) fn friendly_error(error: &Error) -> String {
                 "更新校验文件解析失败，请稍后重试。".into()
             } else if what.contains("github") {
                 "获取 GitHub 发布列表失败或返回格式异常，请检查网络或代理设置。".into()
+            } else if what.contains("update")
+                || what.contains("archive")
+                || what.contains("zip")
+                || what.contains("tar")
+                || what.contains("gzip")
+            {
+                "更新安装包解压或完整性校验失败，请重新运行 campus update 重试。".into()
             } else {
                 "服务返回的数据格式与预期不符，可能由于会话失效或页面改版导致，请尝试重新登录或同步。".into()
             }

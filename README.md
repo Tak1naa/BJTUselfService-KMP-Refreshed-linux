@@ -4,7 +4,7 @@
 
 <h1 align="center">BJTUselfService-Lite · 交大自由行轻量版</h1>
 
-<p align="center"><strong>Version 1.0.1 (`campus`)</strong></p>
+<p align="center"><strong>Version 1.0.2 (`campus`)</strong></p>
 
 <p align="center">
   <em>面向北京交通大学学生的纯 Rust 跨平台校园服务终端与全屏工作台 —— 零运行时依赖、单文件绿色便携（Linux 静态二进制 &lt; 10 MiB）、毫秒级本地秒开。如对你有帮助，欢迎点亮 Star；二次分发与修改请遵守下方署名与协议要求。</em>
@@ -82,13 +82,13 @@
 
 所有发布产物均由 GitHub Actions 自动构建并附带 **`SHA256SUMS.txt`** 校验文件及 **SLSA Build Provenance** 构建溯源证明：
 
-| 平台 | 发布文件示例（`1.0.1`） | 压缩 / 安装说明 | 二进制特性 |
+| 平台 | 发布文件示例（`1.0.2`） | 压缩 / 安装说明 | 二进制特性 |
 | --- | --- | --- | --- |
-| **Windows 10 / 11 (x64)** | `campus-bjtu-1.0.1-windows-x64.zip` | 绿色压缩包约 `3.5 MiB`，内含 `campus.exe`、专属图标与一键解除拦截脚本 `campus.ps1` | 原生 Win32，零 VC++/JVM 运行时 |
-| **macOS (Universal / arm64 / x64)** | `campus-bjtu-1.0.1-macos-universal.tar.gz` | Universal 双架构归档约 `6.6 MiB`；默认启用 ad-hoc `codesign` | 原生 Mach-O，零外部运行时 |
-| **Linux (`.deb`)** | `campus-bjtu_1.0.1_amd64.deb` | 适用于 Ubuntu / Debian / Mint，自动安装命令补全与 `man` 手册 | `x86_64-unknown-linux-musl` 纯静态二进制（`< 10 MiB`） |
-| **Linux (`.rpm`)** | `campus-bjtu-1.0.1-1.x86_64.rpm` | 适用于 Fedora / RHEL / AlmaLinux，自动安装补全与手册 | `x86_64-unknown-linux-musl` 纯静态二进制（`< 10 MiB`） |
-| **通用 Linux / WSL** | `campus-bjtu-1.0.1-linux-x86_64.tar.gz` | 便携压缩包约 `4.0 MiB`，解压单文件即可运行 | `static-pie linked`，不依赖 `glibc` / `openssl` / `libdbus` |
+| **Windows 10 / 11 (x64)** | `campus-bjtu-1.0.2-windows-x64.zip` | 绿色压缩包约 `3.5 MiB`，内含 `campus.exe`、专属图标与一键解除拦截脚本 `campus.ps1` | 原生 Win32，零 VC++/JVM 运行时 |
+| **macOS (Universal / arm64 / x64)** | `campus-bjtu-1.0.2-macos-universal.tar.gz` | Universal 双架构归档约 `6.6 MiB`；默认启用 ad-hoc `codesign` | 原生 Mach-O，零外部运行时 |
+| **Linux (`.deb`)** | `campus-bjtu_1.0.2_amd64.deb` | 适用于 Ubuntu / Debian / Mint，自动安装命令补全与 `man` 手册 | `x86_64-unknown-linux-musl` 纯静态二进制（`< 10 MiB`） |
+| **Linux (`.rpm`)** | `campus-bjtu-1.0.2-1.x86_64.rpm` | 适用于 Fedora / RHEL / AlmaLinux，自动安装补全与手册 | `x86_64-unknown-linux-musl` 纯静态二进制（`< 10 MiB`） |
+| **通用 Linux / WSL** | `campus-bjtu-1.0.2-linux-x86_64.tar.gz` | 便携压缩包约 `4.0 MiB`，解压单文件即可运行 | `static-pie linked`，不依赖 `glibc` / `openssl` / `libdbus` |
 
 ---
 
@@ -98,15 +98,15 @@
 
 ### 1. Windows 10 / 11
 
-1. 下载 **`campus-bjtu-1.0.1-windows-x64.zip`** 并解压到固定文件夹（例如 `D:\Tools\campus`）。
+1. 下载 **`campus-bjtu-1.0.2-windows-x64.zip`** 并解压到固定文件夹（例如 `D:\Tools\campus`）。
 2. **直接双击 `campus.exe`**（若弹出「Windows 已保护你的电脑」，点击 **「更多信息」 -> 「仍要运行」**；也可右键使用 PowerShell 运行随附的 `campus.ps1` 自动执行 `Unblock-File` 解除系统下载拦截并启动）。
 3. 首次打开会自动弹出登录向导：输入学号和 MIS 密码（密码输入时不显示字符属正常保护） -> 选择 **`Y`** 自动在桌面创建「交大自由行 CLI」快捷方式 -> **自动同步所有页面数据**并进入全屏工作台。以后双击桌面快捷方式即可秒开。
 
 ### 2. macOS（Apple Silicon M 系列 / Intel）
 
-1. 下载 **`campus-bjtu-1.0.1-macos-universal.tar.gz`** 并解压，在终端运行：
+1. 下载 **`campus-bjtu-1.0.2-macos-universal.tar.gz`** 并解压，在终端运行：
    ```sh
-   tar -xzf campus-bjtu-1.0.1-macos-universal.tar.gz
+   tar -xzf campus-bjtu-1.0.2-macos-universal.tar.gz
    xattr -d com.apple.quarantine ./campus
    sudo install -m 755 ./campus /usr/local/bin/campus
    campus
@@ -115,11 +115,11 @@
 
 ### 3. Linux（Ubuntu / Debian / Fedora / 通用发行版）
 
-- **Ubuntu / Debian / Linux Mint**：`sudo apt install ./campus-bjtu_1.0.1_amd64.deb`
-- **Fedora / RHEL / AlmaLinux**：`sudo dnf install ./campus-bjtu-1.0.1-1.*.x86_64.rpm`
+- **Ubuntu / Debian / Linux Mint**：`sudo apt install ./campus-bjtu_1.0.2_amd64.deb`
+- **Fedora / RHEL / AlmaLinux**：`sudo dnf install ./campus-bjtu-1.0.2-1.*.x86_64.rpm`
 - **任意 Linux / WSL**：
   ```sh
-  tar -xzf campus-bjtu-1.0.1-linux-x86_64.tar.gz
+  tar -xzf campus-bjtu-1.0.2-linux-x86_64.tar.gz
   install -Dm755 ./campus ~/.local/bin/campus
   campus
   ```

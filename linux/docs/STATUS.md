@@ -2,6 +2,11 @@
 
 日期：2026-11-22。分支：`main`，已将上游 Kotlin Multiplatform 源码归档至只读 Git 标签 `archive/kmp-upstream`，主线专精 Rust 跨平台 CLI/TUI（`1.0.0` 首个正式版）。
 
+## 1.0.2 Windows 纯 Rust 自更新解压修复
+
+- **修复 Windows 自更新必现报错**：定位到旧版 `std::fs::canonicalize` 返回 `\\?\` 逐字路径导致 Windows PowerShell 5.1 `Expand-Archive`（`Microsoft.PowerShell.Archive.psm1`）报错「参数“drive”的值为空」；现已在 [campus-net/src/update.rs](../crates/campus-net/src/update.rs) 中复用 `flate2` 实现纯 Rust 内存 ZIP 解压与 CRC-32 校验（`extract_zip_binary`，零新增依赖），并在 [campus-cli/src/update.rs](../crates/campus-cli/src/update.rs) 增加 `normalize_exe_path` 剥除 `\\?\X:\` 前缀。
+- **修正更新安装包报错文案**：将 [terminal.rs](../crates/campus-cli/src/output/terminal.rs) 中更新归档异常与系统接口异常分开提示，不再误导用户重新登录。
+
 ## 1.0.1 C 端稳定性、同步观测完善与 Wine 快捷方式兼容修复
 
 - **Wine 与受限 Windows 桌面快捷方式回退**：使用 Wine 实测发布包 `campus.exe` 时发现其内置 `powershell.exe` 桩退出 0 但不创建 `.lnk`；现已在 `maybe_create_windows_shortcut` 中增加 `cscript.exe`（`WScript.Shell`）回退，用于桌面路径定位与快捷方式生成（通过进程 UTF-16 环境变量传参避免中文路径或 Description 乱码，并在 Wine 环境实测通过）。

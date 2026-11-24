@@ -146,6 +146,20 @@ fn wait_enter() {
     let _ = std::io::stdin().read_line(&mut pause);
 }
 
+fn normalize_exe_path(exe: std::path::PathBuf) -> std::path::PathBuf {
+    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    #[cfg(windows)]
+    {
+        if let Some(s) = exe.to_str()
+            && let Some(rest) = s.strip_prefix(r"\\?\")
+            && rest.as_bytes().get(1) == Some(&b':')
+        {
+            return std::path::PathBuf::from(rest);
+        }
+    }
+    exe
+}
+
 fn apply_release_update(
     db: &Database,
     paths: &Paths,
@@ -153,8 +167,7 @@ fn apply_release_update(
     yes: bool,
     json_mode: bool,
 ) -> Result<serde_json::Value> {
-    let exe = std::env::current_exe().map_err(storage)?;
-    let exe = std::fs::canonicalize(&exe).unwrap_or(exe);
+    let exe = normalize_exe_path(std::env::current_exe().map_err(storage)?);
     let writable = exe.parent().is_some_and(dir_is_writable);
 
     let prefer_pkg = if cfg!(target_os = "linux") && !writable {
@@ -306,63 +319,27 @@ fn install_in_place(exe: &Path, archive_bytes: &[u8]) -> Result<()> {
 
     #[cfg(windows)]
     {
+        let new_exe = campus_net::update::extract_zip_binary(archive_bytes, "campus.exe")?;
+        let new_ico = campus_net::update::extract_zip_binary(archive_bytes, "campus.ico").ok();
         let parent = exe
             .parent()
             .ok_or_else(|| storage("missing executable directory"))?;
-        let stage = parent.join(format!(".campus-update-{}", std::process::id()));
-        std::fs::create_dir_all(&stage).map_err(storage)?;
-        let zip_path = stage.join("release.zip");
-        let extract_dir = stage.join("extracted");
-        let res = (|| -> Result<()> {
-            std::fs::write(&zip_path, archive_bytes).map_err(storage)?;
-            std::fs::create_dir_all(&extract_dir).map_err(storage)?;
-            let status = std::process::Command::new("powershell")
-                .args([
-                    "-NoProfile",
-                    "-NonInteractive",
-                    "-Command",
-                    "Expand-Archive -LiteralPath $env:CAMPUS_ZIP -DestinationPath $env:CAMPUS_OUT -Force",
-                ])
-                .env("CAMPUS_ZIP", &zip_path)
-                .env("CAMPUS_OUT", &extract_dir)
-                .status()
-                .map_err(storage)?;
-            if !status.success() {
-                return Err(Error::Storage(
-                    "failed to extract Windows update zip".into(),
-                ));
-            }
-            let new_exe = find_file_named(&extract_dir, "campus.exe")
-                .ok_or(Error::Malformed("update zip missing campus.exe"))?;
-            let old_exe = exe.with_extension("exe.old");
-            let _ = std::fs::remove_file(&old_exe);
-            std::fs::rename(exe, &old_exe).map_err(storage)?;
-            if let Err(err) = std::fs::copy(&new_exe, exe) {
-                let _ = std::fs::rename(&old_exe, exe);
-                return Err(storage(err));
-            }
-            if let Some(new_ico) = find_file_named(&extract_dir, "campus.ico") {
-                let _ = std::fs::copy(new_ico, parent.join("campus.ico"));
-            }
-            Ok(())
-        })();
-        let _ = std::fs::remove_dir_all(&stage);
-        res
-    }
-}
-
-#[cfg(windows)]
-fn find_file_named(dir: &Path, target: &str) -> Option<std::path::PathBuf> {
-    let entries = std::fs::read_dir(dir).ok()?;
-    for entry in entries.flatten() {
-        let p = entry.path();
-        if p.is_dir() {
-            if let Some(found) = find_file_named(&p, target) {
-                return Some(found);
-            }
-        } else if p.file_name().and_then(|s| s.to_str()) == Some(target) {
-            return Some(p);
+        let new_tmp = parent.join(format!(".campus.new.{}.exe", std::process::id()));
+        std::fs::write(&new_tmp, &new_exe).map_err(storage)?;
+        let old_exe = exe.with_extension("exe.old");
+        let _ = std::fs::remove_file(&old_exe);
+        if let Err(err) = std::fs::rename(exe, &old_exe) {
+            let _ = std::fs::remove_file(&new_tmp);
+            return Err(storage(err));
         }
+        if let Err(err) = std::fs::rename(&new_tmp, exe) {
+            let _ = std::fs::rename(&old_exe, exe);
+            let _ = std::fs::remove_file(&new_tmp);
+            return Err(storage(err));
+        }
+        if let Some(ico) = new_ico {
+            let _ = std::fs::write(parent.join("campus.ico"), ico);
+        }
+        Ok(())
     }
-    None
 }

@@ -1,9 +1,10 @@
-//! Secure GitHub Releases client, SHA-256 verification, and tar.gz binary extraction.
+//! Secure GitHub Releases client, SHA-256 verification, and tar.gz / zip binary extraction.
 use campus_core::update::{
     GITHUB_RELEASES_API, ReleaseAsset, ReleaseInfo, find_sha256, is_newer, latest_cli_release,
 };
 use campus_core::{Error, Result};
-use flate2::read::GzDecoder;
+use flate2::Crc;
+use flate2::read::{DeflateDecoder, GzDecoder};
 use reqwest::{Client, header, redirect};
 use sha2::{Digest, Sha256};
 use std::io::Read;
@@ -217,6 +218,147 @@ fn parse_tar_octal(field: &[u8]) -> Result<usize> {
     usize::from_str_radix(text, 8).map_err(|_| Error::Malformed("invalid tar octal number"))
 }
 
+/// Extracts a regular file whose basename matches `target_name` (e.g. `campus.exe`) from a `.zip` archive.
+pub fn extract_zip_binary(archive: &[u8], target_name: &str) -> Result<Vec<u8>> {
+    let eocd = find_zip_eocd(archive)?;
+    let cd_entries = u16::from_le_bytes([archive[eocd + 10], archive[eocd + 11]]) as usize;
+    let cd_size = u32::from_le_bytes([
+        archive[eocd + 12],
+        archive[eocd + 13],
+        archive[eocd + 14],
+        archive[eocd + 15],
+    ]) as usize;
+    let cd_offset = u32::from_le_bytes([
+        archive[eocd + 16],
+        archive[eocd + 17],
+        archive[eocd + 18],
+        archive[eocd + 19],
+    ]) as usize;
+    let cd_end = cd_offset
+        .checked_add(cd_size)
+        .filter(|&end| end <= eocd)
+        .ok_or(Error::Malformed("invalid zip central directory"))?;
+
+    let mut pos = cd_offset;
+    for _ in 0..cd_entries {
+        if pos + 46 > cd_end || &archive[pos..pos + 4] != b"PK\x01\x02" {
+            return Err(Error::Malformed("invalid zip central directory header"));
+        }
+        let method = u16::from_le_bytes([archive[pos + 10], archive[pos + 11]]);
+        let expected_crc = u32::from_le_bytes([
+            archive[pos + 16],
+            archive[pos + 17],
+            archive[pos + 18],
+            archive[pos + 19],
+        ]);
+        let comp_size = u32::from_le_bytes([
+            archive[pos + 20],
+            archive[pos + 21],
+            archive[pos + 22],
+            archive[pos + 23],
+        ]) as usize;
+        let uncomp_size = u32::from_le_bytes([
+            archive[pos + 24],
+            archive[pos + 25],
+            archive[pos + 26],
+            archive[pos + 27],
+        ]) as usize;
+        let name_len = u16::from_le_bytes([archive[pos + 28], archive[pos + 29]]) as usize;
+        let extra_len = u16::from_le_bytes([archive[pos + 30], archive[pos + 31]]) as usize;
+        let comment_len = u16::from_le_bytes([archive[pos + 32], archive[pos + 33]]) as usize;
+        let local_offset = u32::from_le_bytes([
+            archive[pos + 42],
+            archive[pos + 43],
+            archive[pos + 44],
+            archive[pos + 45],
+        ]) as usize;
+
+        let name_start = pos + 46;
+        let name_end = name_start + name_len;
+        let next_pos = name_end + extra_len + comment_len;
+        if next_pos > cd_end {
+            return Err(Error::Malformed("truncated zip central directory entry"));
+        }
+        let name = std::str::from_utf8(&archive[name_start..name_end])
+            .map_err(|_| Error::Malformed("invalid zip entry name"))?;
+        pos = next_pos;
+
+        let safe_path = !name.starts_with(['/', '\\'])
+            && !name.ends_with(['/', '\\'])
+            && !name.split(['/', '\\']).any(|seg| seg == "..");
+        let basename = name.rsplit(['/', '\\']).next().unwrap_or("");
+        if !safe_path || basename != target_name {
+            continue;
+        }
+        if uncomp_size > MAX_ASSET_BYTES {
+            return Err(Error::Rejected("zip entry exceeds size limit"));
+        }
+        if local_offset + 30 > cd_offset
+            || &archive[local_offset..local_offset + 4] != b"PK\x03\x04"
+        {
+            return Err(Error::Malformed("invalid zip local file header"));
+        }
+        let l_name_len =
+            u16::from_le_bytes([archive[local_offset + 26], archive[local_offset + 27]]) as usize;
+        let l_extra_len =
+            u16::from_le_bytes([archive[local_offset + 28], archive[local_offset + 29]]) as usize;
+        let data_start = local_offset + 30 + l_name_len + l_extra_len;
+        let data_end = data_start
+            .checked_add(comp_size)
+            .filter(|&end| end <= cd_offset)
+            .ok_or(Error::Malformed("truncated zip entry payload"))?;
+        let compressed = &archive[data_start..data_end];
+        let out = match method {
+            0 => {
+                if compressed.len() != uncomp_size {
+                    return Err(Error::Malformed("invalid stored zip entry size"));
+                }
+                compressed.to_vec()
+            }
+            8 => {
+                let mut decoder =
+                    DeflateDecoder::new(compressed).take((MAX_ASSET_BYTES + 1) as u64);
+                let mut buf = Vec::with_capacity(uncomp_size);
+                decoder
+                    .read_to_end(&mut buf)
+                    .map_err(|_| Error::Malformed("corrupt deflate zip stream"))?;
+                if buf.len() > MAX_ASSET_BYTES {
+                    return Err(Error::Rejected("zip entry exceeds size limit"));
+                }
+                if buf.len() != uncomp_size {
+                    return Err(Error::Malformed("unexpected zip entry size"));
+                }
+                buf
+            }
+            _ => return Err(Error::Malformed("unsupported zip compression")),
+        };
+        let mut crc = Crc::new();
+        crc.update(&out);
+        if crc.sum() != expected_crc {
+            return Err(Error::Malformed("invalid zip entry checksum"));
+        }
+        return Ok(out);
+    }
+
+    Err(Error::Malformed("update zip missing target binary"))
+}
+
+fn find_zip_eocd(archive: &[u8]) -> Result<usize> {
+    if archive.len() < 22 {
+        return Err(Error::Malformed("truncated zip archive"));
+    }
+    let min_offset = archive.len().saturating_sub(22 + u16::MAX as usize);
+    for i in (min_offset..=archive.len() - 22).rev() {
+        if &archive[i..i + 4] == b"PK\x05\x06" {
+            let comment_len = u16::from_le_bytes([archive[i + 20], archive[i + 21]]) as usize;
+            if i + 22 + comment_len == archive.len() {
+                return Ok(i);
+            }
+        }
+    }
+    Err(Error::Malformed("invalid zip end of central directory"))
+}
+
 fn parse_tar_name(header: &[u8; 512]) -> String {
     let raw_str = |slice: &[u8]| {
         let end = slice.iter().position(|&b| b == 0).unwrap_or(slice.len());
@@ -365,5 +507,93 @@ mod tests {
             get_bounded(&format!("{}/evil", server.uri()), 1024, true).await,
             Err(Error::SecureChannel)
         ));
+    }
+
+    fn make_zip(entries: &[(&str, &[u8], bool)]) -> Vec<u8> {
+        use flate2::{Compression, write::DeflateEncoder};
+        let mut archive = Vec::new();
+        let mut central = Vec::new();
+        for &(name, data, deflate) in entries {
+            let mut crc = Crc::new();
+            crc.update(data);
+            let sum = crc.sum();
+            let comp = if deflate {
+                let mut enc = DeflateEncoder::new(Vec::new(), Compression::default());
+                enc.write_all(data).unwrap();
+                enc.finish().unwrap()
+            } else {
+                data.to_vec()
+            };
+            let method: u16 = if deflate { 8 } else { 0 };
+            let offset = archive.len() as u32;
+            let nbytes = name.as_bytes();
+            let nlen = nbytes.len() as u16;
+            archive.extend_from_slice(b"PK\x03\x04");
+            archive.extend_from_slice(&20u16.to_le_bytes());
+            archive.extend_from_slice(&0u16.to_le_bytes());
+            archive.extend_from_slice(&method.to_le_bytes());
+            archive.extend_from_slice(&0u16.to_le_bytes());
+            archive.extend_from_slice(&0u16.to_le_bytes());
+            archive.extend_from_slice(&sum.to_le_bytes());
+            archive.extend_from_slice(&(comp.len() as u32).to_le_bytes());
+            archive.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            archive.extend_from_slice(&nlen.to_le_bytes());
+            archive.extend_from_slice(&0u16.to_le_bytes());
+            archive.extend_from_slice(nbytes);
+            archive.extend_from_slice(&comp);
+
+            central.extend_from_slice(b"PK\x01\x02");
+            central.extend_from_slice(&20u16.to_le_bytes());
+            central.extend_from_slice(&20u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&method.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&sum.to_le_bytes());
+            central.extend_from_slice(&(comp.len() as u32).to_le_bytes());
+            central.extend_from_slice(&(data.len() as u32).to_le_bytes());
+            central.extend_from_slice(&nlen.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u16.to_le_bytes());
+            central.extend_from_slice(&0u32.to_le_bytes());
+            central.extend_from_slice(&offset.to_le_bytes());
+            central.extend_from_slice(nbytes);
+        }
+        let cd_offset = archive.len() as u32;
+        let cd_size = central.len() as u32;
+        archive.extend_from_slice(&central);
+        archive.extend_from_slice(b"PK\x05\x06");
+        archive.extend_from_slice(&0u16.to_le_bytes());
+        archive.extend_from_slice(&0u16.to_le_bytes());
+        archive.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        archive.extend_from_slice(&(entries.len() as u16).to_le_bytes());
+        archive.extend_from_slice(&cd_size.to_le_bytes());
+        archive.extend_from_slice(&cd_offset.to_le_bytes());
+        archive.extend_from_slice(&0u16.to_le_bytes());
+        archive
+    }
+
+    #[test]
+    fn extracts_zip_stored_and_deflated_and_rejects_traversal_and_bad_crc() {
+        let exe = b"MZ-synthetic-campus-exe";
+        let ico = b"ICO-synthetic";
+        let zip = make_zip(&[
+            ("../campus.exe", b"evil", false),
+            ("campus.ico", ico, false),
+            ("nested/campus.exe", exe, true),
+        ]);
+        assert_eq!(extract_zip_binary(&zip, "campus.exe").unwrap(), exe);
+        assert_eq!(extract_zip_binary(&zip, "campus.ico").unwrap(), ico);
+        assert!(matches!(
+            extract_zip_binary(&zip, "missing.exe"),
+            Err(Error::Malformed("update zip missing target binary"))
+        ));
+
+        let mut bad_crc = make_zip(&[("campus.exe", exe, false)]);
+        let last = bad_crc.len() - 32;
+        bad_crc[last] ^= 0xff;
+        assert!(extract_zip_binary(&bad_crc, "campus.exe").is_err());
     }
 }
